@@ -1,0 +1,7 @@
+#ifndef ESP32TEST_SECRETS_H
+#define ESP32TEST_SECRETS_H
+
+#define SECRET_WIFI_SSID ""
+#define SECRET_WIFI_PASS ""
+
+#endif //ESP32TEST_SECRETS_H
