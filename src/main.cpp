@@ -7,6 +7,8 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
+#include "motor.h"
+
 #define LED 2
 
 const char *ssid = SECRET_WIFI_SSID;
@@ -49,16 +51,6 @@ void mqtt_reconnect() {
     }
 }
 
-// Define the GPIO pin for PWM (e.g., GPIO 14)
-const int pwmPin = 14;
-const int dirPin = 12;
-// Define the PWM channel (0-15)
-int pwmChannel = 0;
-// Set PWM frequency (e.g., 25000 Hz)
-// MAX14870 recommended max is 50kHz
-int pwmFreq = 50000;
-// Set PWM resolution (e.g., 8 bits for a 0-255 range)
-int pwmRes = 8;
 
 // FIXME: What are these params?
 // https://registry.platformio.org/libraries/enjoyneering/LiquidCrystal_I2C/examples/HelloWorld/HelloWorld.ino
@@ -129,14 +121,7 @@ void setup() {
     });
   ArduinoOTA.begin();
 
-  // Set up the PWM channel
-  ledcSetup(pwmChannel, pwmFreq, pwmRes);
-  // Attach the PWM channel to the GPIO pin
-  ledcAttachPin(pwmPin, pwmChannel);
-  // Set the initial duty cycle to 0 (motor off)
-  ledcWrite(pwmChannel, 0);
-
-  pinMode(dirPin,OUTPUT);
+  motor_init();
 
   Serial.println("Setting up LCD");
   //if (lcd.begin(16, 2, LCD_5x8DOTS, 400000, 250) != 1) //colums, rows, characters size
@@ -155,9 +140,12 @@ void setup() {
   Serial.println("Setup done");
 }
 
-bool reverse = false;
+int last_motor_count = 0;
+int last_motor_rpm = 0;
 
 void loop() {
+  Serial.println("loop");
+
   ArduinoOTA.handle();
 
   // FIXME: Cannot block in our app!
@@ -168,37 +156,40 @@ void loop() {
   unsigned long now = millis();
   if (now - lastMsg > 2000) {
     if (!client.connected()) {
+      Serial.println("MQTT connect");
       mqtt_reconnect();
+      Serial.println("MQTT connect finished");
     }
     if (client.connected()) {
       lastMsg = now;
       ++value;
-      snprintf(msg, MSG_BUFFER_SIZE, "hello world #%d", value);
-      lcd.clear();
-      lcd.printf("Hello world #%d", value);
+      snprintf(msg, MSG_BUFFER_SIZE, "Motor: %d RPM (%d)", last_motor_rpm, last_motor_count);
       Serial.print("Publish message: ");
       Serial.println(msg);
       client.publish("outTopic", msg);
     }
   }
 
-  reverse = !reverse;
-  digitalWrite(dirPin,reverse ? LOW : HIGH);
-  digitalWrite(LED,reverse ? LOW : HIGH);
+  Serial.println("motor handling");
+  motor_reverse();
+  digitalWrite(LED,motor_is_reversed() ? LOW : HIGH);
 
+  Serial.println("- duty on");
+  motor_duty(100);
+  Serial.println("- delay 2s");
+  delay(2000);
 
-  //digitalWrite(LED,HIGH);
+  last_motor_count = motor_count();
+  last_motor_rpm = motor_rpm();
 
-  // Example: Set motor speed to 50%
-//  ledcWrite(pwmChannel, 255); // 128 is 50% of 255
-  ledcWrite(pwmChannel, 100); // 128 is 50% of 255
-  delay(300);
-  delay(1700);
-
-  // Example: Set motor speed to 0%
-  //digitalWrite(LED,LOW);
-  ledcWrite(pwmChannel, 0); // 0 is 0% of 255
+  Serial.println("- duty 0");
+  motor_duty(0);
+  Serial.println("- delay 200ms ");
   delay(200);
+  Serial.println("motor handling done");
 
+  lcd.clear();
+  lcd.printf("Motor: %d RPM", last_motor_rpm);
 
+  Serial.println("loop done");
 }
