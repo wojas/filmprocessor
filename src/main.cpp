@@ -18,7 +18,7 @@ uint32_t last_ota_time = 0;
 WiFiClient espClient;
 PubSubClient client(espClient);
 unsigned long lastMsg = 0;
-#define MSG_BUFFER_SIZE	(50)
+#define MSG_BUFFER_SIZE	(80)
 char msg[MSG_BUFFER_SIZE];
 int value = 0;
 
@@ -131,7 +131,7 @@ void setup() {
     //delay(5000);
   } else {
     unsigned long t0 = millis();
-    lcd.print(F("Hello world!"));
+    lcd.print(F("Let's roll!"));
     unsigned long t1 = millis();
     Serial.print("LCD write took in ms: ");
     Serial.println(t1 - t0);
@@ -142,6 +142,7 @@ void setup() {
 
 int last_motor_count = 0;
 int last_motor_rpm = 0;
+int last_dt = 0;
 
 void loop() {
   Serial.println("loop");
@@ -163,7 +164,7 @@ void loop() {
     if (client.connected()) {
       lastMsg = now;
       ++value;
-      snprintf(msg, MSG_BUFFER_SIZE, "Motor: %d RPM (%d)", last_motor_rpm, last_motor_count);
+      snprintf(msg, MSG_BUFFER_SIZE, "Motor: %d RPM (%d in %dms)", last_motor_rpm, last_motor_count, last_dt);
       Serial.print("Publish message: ");
       Serial.println(msg);
       client.publish("outTopic", msg);
@@ -175,17 +176,20 @@ void loop() {
   digitalWrite(LED,motor_is_reversed() ? LOW : HIGH);
 
   Serial.println("- duty on");
-  motor_duty(100);
-  Serial.println("- delay 2s");
+  auto t0 = millis();
+  motor_duty(255);
   delay(2000);
+  auto t1 = millis();
 
   last_motor_count = motor_count();
   last_motor_rpm = motor_rpm();
+  last_dt = static_cast<int>(t1 - t0);
+
 
   Serial.println("- duty 0");
   motor_duty(0);
-  Serial.println("- delay 200ms ");
-  delay(200);
+  //Serial.println("- delay 200ms ");
+  delay(100);
   Serial.println("motor handling done");
 
   lcd.clear();

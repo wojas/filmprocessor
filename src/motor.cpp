@@ -13,6 +13,7 @@ extern "C" {
 //#define MOTOR_ENCODER_DIR_GPIO MOTOR_DIR_GPIO
 
 #define MOTOR_GEAR_REDUCTION 168 // gear ratio
+#define MOTOR_ENCODER_PRECISION 32 // pulses per internal round
 
 #define MOTOR_PWM_GPIO 14
 // Define the PWM channel (0-15)
@@ -24,6 +25,7 @@ extern "C" {
 #define MOTOR_PWN_RES 8
 
 #define MOTOR_PCNT_UNIT PCNT_UNIT_0
+#define MOTOR_PCNT_CHANNEL PCNT_CHANNEL_0
 
 //typedef struct {
 //    int pulse_gpio_num;          /*!< Pulse input GPIO number, if you want to use GPIO16, enter pulse_gpio_num = 16, a negative value will be ignored */
@@ -47,7 +49,7 @@ pcnt_config_t pcnt_config = {
     .counter_h_lim = 32767,
     .counter_l_lim = -32767,
     .unit = MOTOR_PCNT_UNIT,
-    .channel = PCNT_CHANNEL_0,
+    .channel = MOTOR_PCNT_CHANNEL,
 };
 
 /*
@@ -77,7 +79,7 @@ int motor_rpm() {
     float dt = now - last_clear;
     float minutes = dt / 1000 / 60;
     float internal_count = static_cast<float>(count);
-    float external_count = internal_count / MOTOR_GEAR_REDUCTION;
+    float external_count = internal_count / MOTOR_GEAR_REDUCTION / MOTOR_ENCODER_PRECISION;
     //float rpm = static_cast<float>(count) * 1000.0 * 60 / dt / MOTOR_GEAR_REDUCTION;
     float rpm = external_count / minutes;
     return static_cast<int>(rpm);
