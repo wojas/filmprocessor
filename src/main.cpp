@@ -57,6 +57,8 @@ void mqtt_reconnect() {
 LiquidCrystal_I2C lcd(PCF8574_ADDR_A21_A11_A01, 4, 5, 6, 16, 11, 12, 13, 14, POSITIVE);
 //LiquidCrystal_I2C lcd(PCF8574A_ADDR_A21_A11_A01, 4, 5, 6, 16, 11, 12, 13, 14, POSITIVE);
 
+uint32_t start_millis = 0;
+
 void setup() {
   Serial.begin(115200);
   pinMode(LED,OUTPUT);
@@ -137,6 +139,7 @@ void setup() {
     Serial.println(t1 - t0);
   }
 
+  start_millis = millis();
   Serial.println("Setup done");
 }
 
@@ -154,7 +157,8 @@ void loop() {
     client.loop();
   }
 
-  unsigned long now = millis();
+  uint32_t now = millis();
+  // TODO: in background task
   if (now - lastMsg > 2000) {
     if (!client.connected()) {
       Serial.println("MQTT connect");
@@ -177,7 +181,7 @@ void loop() {
 
   Serial.println("- duty on");
   auto t0 = millis();
-  motor_duty(255);
+  motor_duty(100);
   delay(2000);
   auto t1 = millis();
 
@@ -194,6 +198,11 @@ void loop() {
 
   lcd.clear();
   lcd.printf("Motor: %d RPM", last_motor_rpm);
+  auto seconds = (now - start_millis) / 1000;
+  auto minutes = seconds / 60;
+  seconds = seconds % 60;
+  lcd.setCursor(0, 1);
+  lcd.printf("%2d:%02d", minutes, seconds);
 
   Serial.println("loop done");
 }
