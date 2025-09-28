@@ -22,6 +22,9 @@ extern "C" {
 // MAX14870 recommended max is 50kHz
 #define MOTOR_PWN_FREQ 50000
 // Set PWM resolution (e.g., 8 bits for a 0-255 range)
+// Max Frequency = 80 MHz / 2^resolution
+// For 10 bits, the max frequency is 78kHz
+// 8 bits should allow us to control the RPM with <1% accuracy.
 #define MOTOR_PWN_RES 8
 
 #define MOTOR_PCNT_UNIT PCNT_UNIT_0
@@ -75,12 +78,12 @@ int motor_rpm() {
     int16_t count = 0;
     pcnt_get_counter_value(MOTOR_PCNT_UNIT, &count);
 
+    // TODO: Rewrite in int32, be careful about overflows and rounding.
     unsigned long now = millis();
     float dt = now - last_clear;
     float minutes = dt / 1000 / 60;
     float internal_count = static_cast<float>(count);
     float external_count = internal_count / MOTOR_GEAR_REDUCTION / MOTOR_ENCODER_PRECISION;
-    //float rpm = static_cast<float>(count) * 1000.0 * 60 / dt / MOTOR_GEAR_REDUCTION;
     float rpm = external_count / minutes;
     return static_cast<int>(rpm);
 }
@@ -107,7 +110,7 @@ void motor_reverse() {
 
 void motor_init() {
     //
-    // PCNT
+    // Pulse counter
     //
     Serial.println("Setting up motor pulse counter");
 
@@ -122,6 +125,7 @@ void motor_init() {
     // FIXME: also for -1000?
     //pcnt_set_event_value(MOTOR_PCNT_UNIT, PCNT_EVT_H_LIM, 1000);
     //pcnt_event_enable(MOTOR_PCNT_UNIT, PCNT_EVT_H_LIM);
+    // FIXME: Hangs on first interrupt, calling convention wrong?
     //pcnt_isr_register(motor_pcnt_isr_handler, nullptr, 0, nullptr);
     //pcnt_intr_enable(MOTOR_PCNT_UNIT);
 
