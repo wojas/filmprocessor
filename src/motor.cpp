@@ -8,6 +8,7 @@ extern "C" {
 
 #define MOTOR_DIR_GPIO 12
 
+// Reverse these pins if the direction is inverted.
 #define MOTOR_ENCODER_PULSE_GPIO 36
 #define MOTOR_ENCODER_DIR_GPIO 39
 //#define MOTOR_ENCODER_DIR_GPIO MOTOR_DIR_GPIO
@@ -26,6 +27,10 @@ extern "C" {
 // For 10 bits, the max frequency is 78kHz
 // 8 bits should allow us to control the RPM with <1% accuracy.
 #define MOTOR_PWN_RES 8
+
+#define MOTOR_ADJUST_LIMIT 50
+#define MOTOR_DUTY_MAX 255
+#define MOTOR_DUTY_MIN 0
 
 #define MOTOR_PCNT_UNIT PCNT_UNIT_0
 #define MOTOR_PCNT_CHANNEL PCNT_CHANNEL_0
@@ -61,52 +66,202 @@ void IRAM_ATTR __cdecl motor_pcnt_isr_handler(void *arg) {
 }
 */
 
-unsigned long last_clear = 0;
-
-void motor_count_clear() {
-    pcnt_counter_clear(MOTOR_PCNT_UNIT);
-    last_clear = millis();
-}
-
-int motor_count() {
-    int16_t count = 0;
-    pcnt_get_counter_value(MOTOR_PCNT_UNIT, &count);
-    return count;
-}
-
-int motor_rpm() {
-    int16_t count = 0;
-    pcnt_get_counter_value(MOTOR_PCNT_UNIT, &count);
-
+int motor_calc_rpm(int count, int dt_ms) {
     // TODO: Rewrite in int32, be careful about overflows and rounding.
-    unsigned long now = millis();
-    float dt = now - last_clear;
-    float minutes = dt / 1000 / 60;
+    if (dt_ms == 0 || count == 0) {
+        return 0;
+    }
+    float minutes = static_cast<float>(dt_ms) / 1000 / 60;
     float internal_count = static_cast<float>(count);
     float external_count = internal_count / MOTOR_GEAR_REDUCTION / MOTOR_ENCODER_PRECISION;
     float rpm = external_count / minutes;
     return static_cast<int>(rpm);
 }
 
-bool reverse = false;
-int duty = 0;
+// Calculate the number of degrees the motor external axis has rotated from count.
+// One rotation is 360, two rotations 720, etc.
+// This may be negative.
+int motor_calc_rotation_degrees(int count) {
+    return 360 * count / MOTOR_GEAR_REDUCTION / MOTOR_ENCODER_PRECISION;
+}
+
+volatile int direction = 1; // 1 is forward, -1 is backward
+
+volatile int32_t total_count = 0;
+volatile uint32_t total_count_abs = 0;
+volatile uint32_t total_count_fw = 0;
+volatile uint32_t total_count_bw = 0;
+
+volatile int target_duty = 0;
+volatile int target_rpm = 0;
+volatile int target_rotation_per_cycle = 0; // in degrees; forever if 0
+volatile int target_rotation = 0; // in degrees
+
+volatile int last_rpm = 0;
+volatile uint32_t last_rpm_millis = 0;
+volatile int last_duty = 0;
+
+
+void motor_dump_status() {
+    Serial.printf("motor_dump_status: direction=%d last=D:%d/RPM:%d "
+                  "total_count=%d/%d/%d/%d target=D:%d/RPM:%d/RPC:%d/ROT:%d rotation=%d\n",
+        direction, last_duty, last_rpm,
+        total_count, total_count_abs, total_count_fw, total_count_bw,
+        target_duty, target_rpm, target_rotation_per_cycle, target_rotation,
+        motor_calc_rotation_degrees(total_count)
+        );
+}
+
+int motor_rpm() {
+    return last_rpm;
+}
+
+int motor_get_target_rpm() {
+    return target_rpm;
+}
+
+int motor_duty() {
+    return last_duty;
+}
 
 bool motor_is_reversed() {
-    return reverse;
+    return direction < 0;
+}
+
+// Absolute motor axis orientation in degrees (0-356)
+unsigned int motor_position_degrees() {
+    auto rot = motor_calc_rotation_degrees(total_count);
+    return static_cast<uint32_t>(rot) % 360;
 }
 
 // level: 0-255
-void motor_duty(const byte level) {
-    duty = level;
-    ledcWrite(MOTOR_PWM_CHANNEL, level);
-    motor_count_clear();
+void motor_target_duty(const byte level) {
+    target_duty = level;
+    target_rpm = 0;
 }
 
-void motor_reverse() {
-    motor_duty(0);
-    reverse = !reverse;
-    digitalWrite(MOTOR_DIR_GPIO,reverse ? LOW : HIGH);
+void motor_target_rpm(const int rpm) {
+    target_duty = 0;
+    target_rpm = rpm;
 }
+
+void motor_target_rotation_per_cycle(int rot) {
+    target_rotation_per_cycle = rot;
+    target_rotation =
+        motor_calc_rotation_degrees(total_count)
+                + direction * target_rotation_per_cycle;
+}
+
+void motor_flush_direction() {
+    digitalWrite(MOTOR_DIR_GPIO, direction > 0 ? LOW : HIGH);
+}
+
+// FIXME: no direct control by app
+void motor_reverse() {
+    ledcWrite(MOTOR_PWM_CHANNEL, 0);
+    last_duty = 0;
+    direction *= -1;
+    motor_flush_direction();
+}
+
+// This will run at a frequency of 50 Hz (every 20ms) to control the motor
+void motor_monitor_task(void * params) {
+    const TickType_t xPeriod = 20 / portTICK_PERIOD_MS;
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    last_rpm_millis = millis();
+
+    // Task loop
+    for (;;) {
+        // Wait for next cycle
+        BaseType_t xWasDelayed = xTaskDelayUntil(&xLastWakeTime, xPeriod);
+
+        // Get and reset count
+        int16_t count = 0;
+        uint32_t now = millis();
+        pcnt_get_counter_value(MOTOR_PCNT_UNIT, &count);
+        pcnt_counter_clear(MOTOR_PCNT_UNIT);
+        total_count += count; // position
+        total_count_abs += abs(count); // odometer
+        if (count > 0) {
+            total_count_fw += count;
+        } else {
+            total_count_bw += abs(count);
+        }
+
+        // Calculate RPM over last tick
+        int dt = now - last_rpm_millis;
+        last_rpm_millis = now;
+        if (dt > 0) {
+            last_rpm = motor_calc_rpm(count, dt);
+        }
+
+        // Check if we hit our target rotation already
+        if (target_rotation_per_cycle > 0) {
+            int32_t total_rotation = motor_calc_rotation_degrees(total_count);
+            // The direction matters here. Here it ensures we compare in the right direction.
+            if ((direction * total_rotation) >= (direction * target_rotation)) {
+                // Halt the motor and set last_duty to 0 for ramp up in future ticks
+                // TODO: This needs better slow down handling.
+                ledcWrite(MOTOR_PWM_CHANNEL, 0);
+                last_duty = 0;
+
+                // Reverse and determine next target rotation
+                direction *= -1;
+                target_rotation += direction * target_rotation_per_cycle;
+                motor_flush_direction();
+
+                Serial.printf("reverse direction=%d rotation=%d target_rotation=%d\n",
+                    direction,
+                    total_rotation,
+                    target_rotation
+                    );
+
+                // No further handling until next tick
+                continue;
+            }
+        }
+
+        // If we have a target duty instead of rpm, or they are 0
+        if (target_duty > 0 || target_rpm == 0) {
+            ledcWrite(MOTOR_PWM_CHANNEL, target_duty);
+            last_duty = target_duty;
+            continue;
+        }
+
+        // Adjust motor load to match RPM
+        // Here rpm is negative if the rpm is in the wrong direction for smoother reversal.
+        // In that case the duty will end up 0 until sufficiently reduced.
+        int rpm = direction * last_rpm;
+        if (rpm != target_rpm) {
+            int diff = target_rpm - rpm;  // positive if not fast enough
+            int adjust = diff; // only way now to get a precision of 1
+
+            // Limit adjustment per tick (20ms)
+            // This results in full ramp up no faster than 100ms, which seems reasonable.
+            if (adjust > MOTOR_ADJUST_LIMIT) {
+                adjust = MOTOR_ADJUST_LIMIT;
+            }
+            if (adjust < -MOTOR_ADJUST_LIMIT) {
+                adjust = -MOTOR_ADJUST_LIMIT;
+            }
+
+            // Ensure the new duty is within the allowed range
+            int duty = last_duty + adjust;
+            if (duty > MOTOR_DUTY_MAX) {
+                duty = MOTOR_DUTY_MAX;
+            }
+            if (duty < MOTOR_DUTY_MIN) {
+                duty = MOTOR_DUTY_MIN;
+            }
+
+            // Set new duty level
+            ledcWrite(MOTOR_PWM_CHANNEL, duty);
+            last_duty = duty;
+        }
+
+    } // monitor forever loop
+}
+
 
 void motor_init() {
     //
@@ -133,7 +288,6 @@ void motor_init() {
     pcnt_counter_pause(MOTOR_PCNT_UNIT);
     pcnt_counter_clear(MOTOR_PCNT_UNIT);
     pcnt_counter_resume(MOTOR_PCNT_UNIT);
-    last_clear = millis();
 
     //
     // Motor driver
@@ -148,6 +302,15 @@ void motor_init() {
     ledcWrite(MOTOR_PWM_CHANNEL, 0);
 
     pinMode(MOTOR_DIR_GPIO,OUTPUT);
+
+    TaskHandle_t xHandle = nullptr;
+    xTaskCreate(motor_monitor_task,
+        "motor_monitor",
+        2048,
+        nullptr,
+        tskIDLE_PRIORITY + 2,
+        &xHandle);
+    configASSERT( xHandle );
 }
 
 } // extern C

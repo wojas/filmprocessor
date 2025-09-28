@@ -98,7 +98,7 @@ void setup() {
       }
 
       // Stop the motor
-      motor_duty(0);
+      motor_target_duty(0);
 
       // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
       Serial.println("Start updating " + type);
@@ -155,17 +155,18 @@ void setup() {
     Serial.println(t1 - t0);
   }
 
+  motor_target_duty(100);
+  motor_target_rotation_per_cycle(720);
+
   start_millis = millis();
   last_reversal = start_millis;
   Serial.println("Setup done");
 }
 
-int last_motor_count = 0;
-int last_motor_rpm = 0;
 int last_dt = 0;
 
 void loop() {
-  Serial.println("loop");
+  //Serial.println("loop");
 
   ArduinoOTA.handle();
 
@@ -177,6 +178,7 @@ void loop() {
   uint32_t now = millis();
   // TODO: in background task
   if (now - lastMsg > 2000) {
+    motor_dump_status();
     if (!client.connected()) {
       Serial.println("MQTT connect");
       mqtt_reconnect();
@@ -185,31 +187,19 @@ void loop() {
     if (client.connected()) {
       lastMsg = now;
       ++value;
-      snprintf(msg, MSG_BUFFER_SIZE, "Motor: %d RPM (%d in %dms)", last_motor_rpm, last_motor_count, last_dt);
+      snprintf(msg, MSG_BUFFER_SIZE, "Motor: %d RPM, %d deg, %d duty",
+        motor_rpm(), motor_position_degrees(), motor_duty());
       Serial.print("Publish message: ");
       Serial.println(msg);
       client.publish("outTopic", msg);
     }
   }
 
-  last_motor_count = motor_count();
-  last_motor_rpm = motor_rpm();
-
-  //Serial.println("motor handling");
-  if (now - last_reversal > 2000) {
-    last_dt = now - last_reversal;
-    Serial.println("Motor reversal");
-    motor_duty(0);
-    delay(100);
-    now = millis();
-    last_reversal = now;
-    motor_reverse();
-    digitalWrite(LED,motor_is_reversed() ? LOW : HIGH);
-  }
+  digitalWrite(LED,motor_is_reversed() ? LOW : HIGH);
 
   //Serial.println("- duty on");
   //auto t0 = millis();
-  motor_duty(100);
+  //motor_duty(100);
   //delay(100);
   //auto t1 = millis();
 
@@ -224,7 +214,12 @@ void loop() {
   if (now - last_lcd > 200) {
     //lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.printf("RPM %3d         ", last_motor_rpm);
+    lcd.printf("%3d/%2d %3d %3d",
+        motor_rpm(),
+        motor_get_target_rpm(),
+        motor_position_degrees(),
+        motor_duty()
+        );
     auto seconds = (now - start_millis) / 1000;
     auto minutes = seconds / 60;
     seconds = seconds % 60;
@@ -233,6 +228,6 @@ void loop() {
     last_lcd = now;
   }
 
-  Serial.println("loop done");
-  delay(10);
+  //Serial.println("loop done");
+  delay(100);
 }
