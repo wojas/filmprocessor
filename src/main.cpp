@@ -177,6 +177,7 @@ void setup() {
       Serial.printf("Error[%u]: %s", error, err);
       lcd.clear();
       lcd.printf("Error[%u]\n%s", error, err);
+      sleep(5000);
     });
   ArduinoOTA.begin();
 
@@ -207,6 +208,118 @@ void setup() {
 }
 
 int last_dt = 0;
+
+void kp_handle(char key) {
+  // Keypad state
+  static char mode = 0;
+  static uint16_t val = 0;
+  static String buffer;
+  char digit = 0;
+
+  buffer += key;
+
+  switch (mode) {
+  case '*':
+    // Special function on next number
+    if (key == '*') {
+      mode = 0;
+      buffer.clear();
+    }
+    break;
+
+  case 'A':
+  case 'B':
+  case 'C':
+  case 'D':
+    // In param mode (end with '#' or cancel with '*')
+    if (key == '*') {
+      mode = 0;
+      val = 0;
+      buffer.clear();
+      break;
+    }
+    if (key == '#') {
+      switch (mode) {
+      case 'A':
+        if (val < 100) {
+          motor_target_rpm(val);
+        }
+        break;
+      case 'B':
+        break;
+      case 'C':
+        motor_target_rotation_per_cycle(val);
+        break;
+      case 'D':
+        if (val <= 255) {
+          motor_target_duty(val);
+        }
+        break;
+      default:
+        break;
+      }
+      mode = 0;
+      val = 0;
+      break;
+    }
+    // Input number
+    digit = key - '0';
+    if (digit >= 0 && digit <= 9) {
+      val = val * 10 + digit;
+    }
+    break;
+
+  default:
+    {
+      // Normal mode (select program or mode)
+      buffer.clear();
+      buffer += key;
+      switch (key) {
+      case '0':
+        motor_target_rpm(0);
+        motor_target_duty(0);
+      case '1':
+        motor_target_rpm(50);
+        break;
+      case '2':
+        motor_target_rpm(75);
+        break;
+      case '3':
+        motor_target_rpm(25);
+        break;
+      case '5':
+        motor_target_rpm(5);
+        break;
+      case '6':
+        motor_target_rpm(10);
+        break;
+      case '7':
+        motor_target_duty(255);
+        break;
+      case '#':
+        // Reset timer
+        start_millis = millis();
+        break;
+      case 'A':
+      case 'B':
+      case 'C':
+      case 'D':
+      case '*':
+        mode = key;
+        val = 0;
+        break;
+      default:
+        mode = 0;
+        val = 0;
+        break;
+      }
+    }
+  }
+  lcd.setCursor(8, 1);
+  lcd.print("        ");
+  lcd.setCursor(16 - buffer.length(), 1);
+  lcd.print(buffer);
+}
 
 void loop() {
   //Serial.println("loop");
@@ -274,8 +387,9 @@ void loop() {
   char key = keypad.getKey();
   if (key) {
     Serial.printf("Keypad: %c\n", key);
-    lcd.setCursor(15, 1);
-    lcd.write(key);
+    //lcd.setCursor(15, 1);
+    //lcd.write(key);
+    kp_handle(key);
   }
 
   //Serial.println("loop done");
