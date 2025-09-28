@@ -58,6 +58,8 @@ LiquidCrystal_I2C lcd(PCF8574_ADDR_A21_A11_A01, 4, 5, 6, 16, 11, 12, 13, 14, POS
 //LiquidCrystal_I2C lcd(PCF8574A_ADDR_A21_A11_A01, 4, 5, 6, 16, 11, 12, 13, 14, POSITIVE);
 
 uint32_t start_millis = 0;
+uint32_t last_reversal = 0;
+uint32_t last_lcd = 0;
 
 void setup() {
   Serial.begin(115200);
@@ -90,36 +92,49 @@ void setup() {
     .onStart([]() {
       String type;
       if (ArduinoOTA.getCommand() == U_FLASH) {
-        type = "sketch";
+        type = "firmware";
       } else {  // U_SPIFFS
         type = "filesystem";
       }
 
+      // Stop the motor
+      motor_duty(0);
+
       // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
       Serial.println("Start updating " + type);
+      lcd.clear();
+      lcd.print("Update " + type);
     })
     .onEnd([]() {
       Serial.println("\nEnd");
+      lcd.print("Update done");
     })
     .onProgress([](unsigned int progress, unsigned int total) {
       if (millis() - last_ota_time > 500) {
         Serial.printf("Progress: %u%%\n", (progress / (total / 100)));
         last_ota_time = millis();
       }
+      lcd.setCursor(0, 1);
+      // Need uint16
+      uint16_t pct = 100 * progress / total;
+      lcd.printHorizontalGraph('*', 1, pct, 100);
     })
     .onError([](ota_error_t error) {
-      Serial.printf("Error[%u]: ", error);
+      const char * err = "Unknown error";
       if (error == OTA_AUTH_ERROR) {
-        Serial.println("Auth Failed");
+        err = "Auth Failed";
       } else if (error == OTA_BEGIN_ERROR) {
-        Serial.println("Begin Failed");
+        err = "Begin Failed";
       } else if (error == OTA_CONNECT_ERROR) {
-        Serial.println("Connect Failed");
+        err = "Connect Failed";
       } else if (error == OTA_RECEIVE_ERROR) {
-        Serial.println("Receive Failed");
+        err = "Receive Failed";
       } else if (error == OTA_END_ERROR) {
-        Serial.println("End Failed");
+        err = "End Failed";
       }
+      Serial.printf("Error[%u]: %s", error, err);
+      lcd.clear();
+      lcd.printf("Error[%u]\n%s", error, err);
     });
   ArduinoOTA.begin();
 
@@ -133,6 +148,7 @@ void setup() {
     //delay(5000);
   } else {
     unsigned long t0 = millis();
+    lcd.clear();
     lcd.print(F("Let's roll!"));
     unsigned long t1 = millis();
     Serial.print("LCD write took in ms: ");
@@ -140,6 +156,7 @@ void setup() {
   }
 
   start_millis = millis();
+  last_reversal = start_millis;
   Serial.println("Setup done");
 }
 
@@ -175,34 +192,47 @@ void loop() {
     }
   }
 
-  Serial.println("motor handling");
-  motor_reverse();
-  digitalWrite(LED,motor_is_reversed() ? LOW : HIGH);
-
-  Serial.println("- duty on");
-  auto t0 = millis();
-  motor_duty(100);
-  delay(2000);
-  auto t1 = millis();
-
   last_motor_count = motor_count();
   last_motor_rpm = motor_rpm();
-  last_dt = static_cast<int>(t1 - t0);
 
+  //Serial.println("motor handling");
+  if (now - last_reversal > 2000) {
+    last_dt = now - last_reversal;
+    Serial.println("Motor reversal");
+    motor_duty(0);
+    delay(100);
+    now = millis();
+    last_reversal = now;
+    motor_reverse();
+    digitalWrite(LED,motor_is_reversed() ? LOW : HIGH);
+  }
 
-  Serial.println("- duty 0");
-  motor_duty(0);
+  //Serial.println("- duty on");
+  //auto t0 = millis();
+  motor_duty(100);
+  //delay(100);
+  //auto t1 = millis();
+
+  //last_dt = static_cast<int>(t1 - t0);
+
+  //Serial.println("- duty 0");
+  //motor_duty(0);
   //Serial.println("- delay 200ms ");
-  delay(100);
-  Serial.println("motor handling done");
+  //delay(100);
+  //Serial.println("motor handling done");
 
-  lcd.clear();
-  lcd.printf("Motor: %d RPM", last_motor_rpm);
-  auto seconds = (now - start_millis) / 1000;
-  auto minutes = seconds / 60;
-  seconds = seconds % 60;
-  lcd.setCursor(0, 1);
-  lcd.printf("%2d:%02d", minutes, seconds);
+  if (now - last_lcd > 200) {
+    //lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.printf("RPM %3d         ", last_motor_rpm);
+    auto seconds = (now - start_millis) / 1000;
+    auto minutes = seconds / 60;
+    seconds = seconds % 60;
+    lcd.setCursor(0, 1);
+    lcd.printf("%2d:%02d", minutes, seconds);
+    last_lcd = now;
+  }
 
   Serial.println("loop done");
+  delay(10);
 }
