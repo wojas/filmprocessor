@@ -155,7 +155,8 @@ void setup() {
     Serial.println(t1 - t0);
   }
 
-  motor_target_duty(100);
+  //motor_target_duty(100);
+  motor_target_rpm(5);
   motor_target_rotation_per_cycle(720);
 
   start_millis = millis();

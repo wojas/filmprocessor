@@ -28,7 +28,7 @@ extern "C" {
 // 8 bits should allow us to control the RPM with <1% accuracy.
 #define MOTOR_PWN_RES 8
 
-#define MOTOR_ADJUST_LIMIT 50
+#define MOTOR_ADJUST_LIMIT 70
 #define MOTOR_DUTY_MAX 255
 #define MOTOR_DUTY_MIN 0
 
