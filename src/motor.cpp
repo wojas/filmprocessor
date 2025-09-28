@@ -28,8 +28,14 @@ extern "C" {
 // 8 bits should allow us to control the RPM with <1% accuracy.
 #define MOTOR_PWN_RES 8
 
+// Maximum duty adjustment per tick.
+// With 70 it effectively requires 3 ticks (60ms) to ramp up to 50 RPM.
 #define MOTOR_ADJUST_LIMIT 70
 #define MOTOR_DUTY_MAX 255
+// Found that the motor does not move with lower values
+// Duty 0 is still allowed to stop the motor
+// TODO: Not sure if this is useful in any way. May prevent adjustments from
+//       working correctly in lower ranges.
 #define MOTOR_DUTY_MIN 0
 
 #define MOTOR_PCNT_UNIT PCNT_UNIT_0
@@ -128,18 +134,24 @@ bool motor_is_reversed() {
     return direction < 0;
 }
 
-// Absolute motor axis orientation in degrees (0-356)
+// Absolute motor axis orientation in degrees (0-359).
+// Relative to whatever starting position the motor had on startup.
 unsigned int motor_position_degrees() {
     auto rot = motor_calc_rotation_degrees(total_count);
     return static_cast<uint32_t>(rot) % 360;
 }
 
+// Set a fixed PWM duty cycle.
 // level: 0-255
 void motor_target_duty(const byte level) {
     target_duty = level;
     target_rpm = 0;
 }
 
+// Set the target RPM value.
+// For small values this will be inaccurate, because we compare against
+// truncated integer RPM values. An effective RPM of 1.99 is still considered 1 RPM
+// by the monitor loop.
 void motor_target_rpm(const int rpm) {
     target_duty = 0;
     target_rpm = rpm;
@@ -250,7 +262,7 @@ void motor_monitor_task(void * params) {
             if (duty > MOTOR_DUTY_MAX) {
                 duty = MOTOR_DUTY_MAX;
             }
-            if (duty < MOTOR_DUTY_MIN) {
+            if (duty > 0 && duty < MOTOR_DUTY_MIN) {
                 duty = MOTOR_DUTY_MIN;
             }
 
@@ -301,8 +313,11 @@ void motor_init() {
     // Set the initial duty cycle to 0 (motor off)
     ledcWrite(MOTOR_PWM_CHANNEL, 0);
 
+    // Direction pin
     pinMode(MOTOR_DIR_GPIO,OUTPUT);
+    motor_flush_direction();
 
+    // Start monitor task
     TaskHandle_t xHandle = nullptr;
     xTaskCreate(motor_monitor_task,
         "motor_monitor",
