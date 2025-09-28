@@ -30,20 +30,49 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     Serial.print((char)payload[i]);
   }
   Serial.println();
+  if (length < 2) {
+    return; // cannot be valid
+  }
+  auto s = String(reinterpret_cast<char*>(payload), length);
+  byte command = payload[0];
+  switch (command) {
+  case 'R':
+    {
+    int val = s.substring(1).toInt();
+    motor_target_rpm(val);
+      break;
+    }
+  case 'D':
+    {
+      int val = s.substring(1).toInt();
+      motor_target_duty(val);
+      break;
+    }
+  case 'C':
+    {
+      int val = s.substring(1).toInt();
+      motor_target_rotation_per_cycle(val);
+      break;
+    }
+  default:
+    {
+      Serial.println("[MQTT] Invalid command");
+    }
+  }
 }
 
 void mqtt_reconnect() {
     Serial.print("Attempting MQTT connection...");
     // Create a random client ID
-    String clientId = "PubSubClient-";
+    String clientId = "letsroll-";
     clientId += String(random(0xffff), HEX);
     // Attempt to connect
     if (client.connect(clientId.c_str(), SECRET_MQTT_USER, SECRET_MQTT_PASS)) {
       Serial.println("connected");
       // Once connected, publish an announcement...
-      client.publish("outTopic", "hello world");
+      client.publish("letsroll.hello", "hello world");
       // ... and resubscribe
-      client.subscribe("inTopic");
+      client.subscribe("letsroll.motor.control");
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
@@ -192,7 +221,7 @@ void loop() {
         motor_rpm(), motor_position_degrees(), motor_duty());
       Serial.print("Publish message: ");
       Serial.println(msg);
-      client.publish("outTopic", msg);
+      client.publish("letsroll.log", msg);
     }
   }
 
