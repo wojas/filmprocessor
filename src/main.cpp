@@ -507,10 +507,13 @@ void loop() {
   if (buttonRoll.getSingleDebouncedPress()) {
     bool is_paused = motor_toggle_paused();
     Serial.printf("Button: ROLL pressed, paused is now %d\n", is_paused);
+    client.publish("letsroll/log", "Button: ROLL pressed"); // unexpected triggers
   }
   if (buttonTime.getSingleDebouncedPress()) {
-    reset_timer();
+    // FIXME: disabled until the button is make more reliable
+    //reset_timer();
     Serial.printf("Button: TIME pressed\n");
+    client.publish("letsroll/log", "Button: TIME pressed"); // unexpected triggers
   }
 
   //Serial.println("loop done");
