@@ -29,8 +29,8 @@ extern "C" {
 #define MOTOR_PWN_RES 8
 
 // Maximum duty adjustment per tick.
-// With 70 it effectively requires 3 ticks (60ms) to ramp up to 50 RPM.
-#define MOTOR_ADJUST_LIMIT 70
+// With 70 it effectively requires 3 ticks (60ms) to ramp up to 50 RPM (~200 duty).
+#define MOTOR_ADJUST_LIMIT 40
 #define MOTOR_DUTY_MAX 255
 // Found that the motor does not move with lower values
 // Duty 0 is still allowed to stop the motor
