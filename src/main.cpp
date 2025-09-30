@@ -7,6 +7,7 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <Keypad.h>
+#include <Pushbutton.h>
 
 #include "motor.h"
 
@@ -24,6 +25,11 @@ byte progress_char_base[16] = {
   255, 255, 255, 255
 };
 
+#define BUTTON_ROLL 32
+#define BUTTON_TIME 35
+
+Pushbutton buttonRoll(BUTTON_ROLL);
+Pushbutton buttonTime(BUTTON_TIME);
 
 const char *ssid = SECRET_WIFI_SSID;
 const char *password = SECRET_WIFI_PASS;
@@ -71,20 +77,30 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
   switch (command) {
   case 'R':
     {
-    int val = s.substring(1).toInt();
-    motor_target_rpm(val);
+      // Set RPM
+      int val = s.substring(1).toInt();
+      motor_target_rpm(val);
       break;
     }
   case 'D':
     {
+      // Set duty
       int val = s.substring(1).toInt();
       motor_target_duty(val);
       break;
     }
   case 'C':
     {
+      // Set rotation per cycle
       int val = s.substring(1).toInt();
       motor_target_rotation_per_cycle(val);
+      break;
+    }
+  case 'P':
+    {
+      // Pause the motor
+      bool pause = s.length() == 1 || s.substring(1).toInt() > 0;
+      motor_set_paused(pause);
       break;
     }
   default:
@@ -128,8 +144,25 @@ Keypad keypad = Keypad(makeKeymap(keys), pin_rows, pin_column, KP_ROW_NUM, KP_CO
 
 
 uint32_t start_millis = 0;
+uint32_t prev_time_sec = 0;
 uint32_t last_reversal = 0;
 uint32_t last_lcd = 0;
+
+void reset_timer() {
+  auto now = millis();
+  auto prev = (now - start_millis) / 1000;
+  // Ignore short times, likely mistakes or uninteresting for development
+  if (prev > 15) {
+    prev_time_sec = prev;
+  }
+  start_millis = now;
+}
+
+void lcd_print_time(uint32_t seconds) {
+  auto minutes = seconds / 60;
+  seconds = seconds % 60;
+  lcd.printf("%2d:%02d", minutes, seconds);
+}
 
 void error_blink(const int count, const int on_delay, const int off_delay) {
   for (int i = 0; i < count; i++) {
@@ -262,12 +295,10 @@ void setup() {
     });
   ArduinoOTA.begin();
 
-  motor_init();
-
-  //motor_target_duty(100);
-  //motor_target_rpm(5);
-  motor_target_duty(0);
+  // Default on startup after future unpause
   motor_target_rotation_per_cycle(720);
+  motor_target_rpm(10);
+  motor_init();
 
   start_millis = millis();
   last_reversal = start_millis;
@@ -345,7 +376,7 @@ void kp_handle(char key) {
       buffer += key;
       switch (key) {
       case '0':
-        // FIXME: This sets RPM to 50. Why? We need a motor_stop() too.
+        // This is different from pausing with the ROLL button.
         motor_target_duty(0);
         break;
       case '1':
@@ -368,7 +399,7 @@ void kp_handle(char key) {
         break;
       case '#':
         // Reset timer
-        start_millis = millis();
+        reset_timer();
         break;
       case 'A':
       case 'B':
@@ -417,7 +448,7 @@ void loop() {
         motor_rpm(), motor_position_degrees(), motor_duty());
       Serial.print("Publish message: ");
       Serial.println(msg);
-      client.publish("letsroll.log", msg);
+      client.publish("letsroll/log", msg);
     }
   }
 
@@ -440,30 +471,46 @@ void loop() {
   if (now - last_lcd > 200) {
     //lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.printf("%3d/%2d D%3d",
-        motor_rpm(),
-        motor_get_target_rpm(),
-        motor_duty()
-        );
+    int rpm = motor_rpm();
+    int duty = motor_duty();
+    if (motor_is_paused() && rpm == 0 && duty == 0) {
+      lcd.printf("[P]/%2d D%3d", motor_get_target_rpm(), duty);
+    } else {
+      lcd.printf("%3d/%2d D%3d", rpm, motor_get_target_rpm(), duty);
+    }
     // We defined custom progress characters 0-7 (vertical bar chart)
+    // TODO: This should really be 0-8 (inclusive), with 0xFF being a full block.
     char progress = motor_position_degrees() / 45;
     lcd.setCursor(15, 0);
     lcd.write(progress);
 
     auto seconds = (now - start_millis) / 1000;
-    auto minutes = seconds / 60;
-    seconds = seconds % 60;
     lcd.setCursor(0, 1);
-    lcd.printf("%2d:%02d", minutes, seconds);
+    lcd_print_time(seconds);
+    if (prev_time_sec > 0) {
+      lcd.setCursor(6, 1);
+      lcd_print_time(prev_time_sec);
+    }
     last_lcd = now;
   }
 
+  // Handle keypad input
   char key = keypad.getKey();
   if (key) {
     Serial.printf("Keypad: %c\n", key);
     //lcd.setCursor(15, 1);
     //lcd.write(key);
     kp_handle(key);
+  }
+
+  // Handle the ROLL and TIME button
+  if (buttonRoll.getSingleDebouncedPress()) {
+    bool is_paused = motor_toggle_paused();
+    Serial.printf("Button: ROLL pressed, paused is now %d\n", is_paused);
+  }
+  if (buttonTime.getSingleDebouncedPress()) {
+    reset_timer();
+    Serial.printf("Button: TIME pressed\n");
   }
 
   //Serial.println("loop done");

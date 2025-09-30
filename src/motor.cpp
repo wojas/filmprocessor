@@ -102,6 +102,7 @@ volatile int target_duty = 0;
 volatile int target_rpm = 0;
 volatile int target_rotation_per_cycle = 0; // in degrees; forever if 0
 volatile int target_rotation = 0; // in degrees
+volatile bool target_pause = true;
 
 volatile int last_rpm = 0;
 volatile uint32_t last_rpm_millis = 0;
@@ -134,6 +135,19 @@ bool motor_is_reversed() {
     return direction < 0;
 }
 
+bool motor_is_paused() {
+    return target_pause;
+}
+
+void motor_set_paused(const bool pause) {
+    target_pause = pause;
+}
+
+bool motor_toggle_paused() {
+    target_pause = !target_pause;
+    return target_pause;
+}
+
 // Absolute motor axis orientation in degrees (0-359).
 // Relative to whatever starting position the motor had on startup.
 unsigned int motor_position_degrees() {
@@ -146,6 +160,7 @@ unsigned int motor_position_degrees() {
 void motor_target_duty(const byte level) {
     target_duty = level;
     target_rpm = 0;
+    target_pause = level == 0;
 }
 
 // Set the target RPM value.
@@ -155,6 +170,13 @@ void motor_target_duty(const byte level) {
 void motor_target_rpm(const int rpm) {
     target_duty = 0;
     target_rpm = rpm;
+    target_pause = rpm == 0;
+}
+
+void motor_target_rpm_paused(const int rpm) {
+    target_duty = 0;
+    target_rpm = rpm;
+    target_pause = true;
 }
 
 void motor_target_rotation_per_cycle(int rot) {
@@ -205,6 +227,13 @@ void motor_monitor_task(void * params) {
         last_rpm_millis = now;
         if (dt > 0) {
             last_rpm = motor_calc_rpm(count, dt);
+        }
+
+        // If we are paused, do nothing
+        if (target_pause) {
+            ledcWrite(MOTOR_PWM_CHANNEL, 0);
+            last_duty = 0;
+            continue;
         }
 
         // Check if we hit our target rotation already
@@ -316,6 +345,9 @@ void motor_init() {
     // Direction pin
     pinMode(MOTOR_DIR_GPIO,OUTPUT);
     motor_flush_direction();
+
+    // Start paused
+    target_pause = true;
 
     // Start monitor task
     TaskHandle_t xHandle = nullptr;
