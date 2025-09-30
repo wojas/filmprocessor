@@ -12,6 +12,19 @@
 
 #define LED 2
 
+// https://registry.platformio.org/libraries/enjoyneering/LiquidCrystal_I2C/examples/HelloWorld/HelloWorld.ino
+LiquidCrystal_I2C lcd(PCF8574_ADDR_A21_A11_A01, 4, 5, 6, 16, 11, 12, 13, 14, POSITIVE);
+//LiquidCrystal_I2C lcd(PCF8574A_ADDR_A21_A11_A01, 4, 5, 6, 16, 11, 12, 13, 14, POSITIVE);
+
+// LCD custom characters for progress made from this by pointing at the right offset
+byte progress_char_base[16] = {
+  0, 0, 0, 0,
+  0, 0, 0, 0,
+  255, 255, 255, 255,
+  255, 255, 255, 255
+};
+
+
 const char *ssid = SECRET_WIFI_SSID;
 const char *password = SECRET_WIFI_PASS;
 uint32_t last_ota_time = 0;
@@ -31,6 +44,25 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     Serial.print((char)payload[i]);
   }
   Serial.println();
+
+  auto topicString = String(topic);
+
+  if (topic == "letsroll/reboot") {
+    motor_target_duty(0);
+    Serial.println("[MQTT] reboot requested");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("MQTT reboot!");
+    delay(5000);
+    ESP.restart();
+    return;
+  }
+
+  // Below is all topic letsroll/motor/control
+  if (topicString != "letsroll/motor/control") {
+    Serial.println("Unhandled topic");
+    return;
+  }
   if (length < 2) {
     return; // cannot be valid
   }
@@ -71,9 +103,10 @@ void mqtt_reconnect() {
     if (client.connect(clientId.c_str(), SECRET_MQTT_USER, SECRET_MQTT_PASS)) {
       Serial.println("connected");
       // Once connected, publish an announcement...
-      client.publish("letsroll.hello", "hello world");
+      client.publish("letsroll/hello", "hello world");
       // ... and resubscribe
-      client.subscribe("letsroll.motor.control");
+      client.subscribe("letsroll/motor/control");
+      client.subscribe("letsroll/reboot");
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
@@ -94,34 +127,79 @@ byte pin_column[KP_COLUMN_NUM] = {16, 17, 5, 18};
 Keypad keypad = Keypad(makeKeymap(keys), pin_rows, pin_column, KP_ROW_NUM, KP_COLUMN_NUM );
 
 
-// FIXME: What are these params?
-// https://registry.platformio.org/libraries/enjoyneering/LiquidCrystal_I2C/examples/HelloWorld/HelloWorld.ino
-LiquidCrystal_I2C lcd(PCF8574_ADDR_A21_A11_A01, 4, 5, 6, 16, 11, 12, 13, 14, POSITIVE);
-//LiquidCrystal_I2C lcd(PCF8574A_ADDR_A21_A11_A01, 4, 5, 6, 16, 11, 12, 13, 14, POSITIVE);
-
 uint32_t start_millis = 0;
 uint32_t last_reversal = 0;
 uint32_t last_lcd = 0;
+
+void error_blink(const int count, const int on_delay, const int off_delay) {
+  for (int i = 0; i < count; i++) {
+    digitalWrite(LED, HIGH);
+    delay(on_delay);
+    digitalWrite(LED, LOW);
+    delay(off_delay);
+  }
+}
+
+void lcd_clear_row(const int row) {
+  lcd.setCursor(0, row);
+  lcd.print("                "); // 16 spaces
+  lcd.setCursor(0, row);
+}
 
 void setup() {
   Serial.begin(115200);
   pinMode(LED,OUTPUT);
 
+  // Setup LCD for early error output
+  Serial.println("Setting up LCD");
+  if (lcd.begin(16, 2, LCD_5x8DOTS) != 1) //colums, rows, characters size
+  {
+    Serial.println(F("PCF8574 is not connected or lcd pins declaration is wrong. Only pins numbers: 4,5,6,16,11,12,13,14 are legal."));
+    error_blink(10, 500, 200); // takes 7s
+    ESP.restart();
+  }
+  unsigned long t0 = millis();
+  lcd.clear();
+  lcd.print(F("Let's roll!"));
+  unsigned long t1 = millis();
+  Serial.print("LCD write took in ms: ");
+  Serial.println(t1 - t0);
+  for (int i = 0; i < 8; i++) {
+    lcd.createChar(i, progress_char_base+i);
+  }
+
   // https://community.platformio.org/t/esp32-ota-using-platformio/15057/4
+  lcd_clear_row(1);
+  lcd.print(F("WiFi:"));
+  lcd.print(ssid);
   Serial.print("[WiFi] Connecting to WiFI network ");
   Serial.println(ssid);
   digitalWrite(LED,HIGH);
+  WiFi.setHostname("filmprocessor");
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
-  while (WiFi.waitForConnectResult() != WL_CONNECTED) {
+  auto wifi_res = WiFi.waitForConnectResult();
+  if (wifi_res != WL_CONNECTED) {
     digitalWrite(LED,LOW);
-    Serial.println("[WiFi] Connection Failed! Rebooting...");
-    delay(5000);
-    ESP.restart();
+    Serial.println("[WiFi] Connection Failed!");
+    lcd_clear_row(0);
+    lcd.printf("WiFi err %3d    ", wifi_res);
+
+    error_blink(15, 200, 100); // takes 4.5s
+    //ESP.restart();
+  } else {
+    // Display IP
+    auto ip = WiFi.localIP();
+    Serial.println("[WiFI] connected");
+    Serial.print("[WiFi] IP address: ");
+    Serial.println(ip);
+
+    // Display IP for 500ms
+    lcd_clear_row(1);
+    lcd.print(ip.toString());
+    delay(500);
+    lcd_clear_row(1);
   }
-  Serial.println("[WiFI] connected");
-  Serial.print("[WiFi] IP address: ");
-  Serial.println(WiFi.localIP());
 
   client.setServer(SECRET_MQTT_SERVER, 1883);
   // For incoming messages, including headers. Default: 128
@@ -176,30 +254,19 @@ void setup() {
       }
       Serial.printf("Error[%u]: %s", error, err);
       lcd.clear();
-      lcd.printf("Error[%u]\n%s", error, err);
-      sleep(5000);
+      lcd.setCursor(0, 0);
+      lcd.printf("Error %u", error);
+      lcd.setCursor(0, 1);
+      lcd.print(err);
+      sleep(5);
     });
   ArduinoOTA.begin();
 
   motor_init();
 
-  Serial.println("Setting up LCD");
-  //if (lcd.begin(16, 2, LCD_5x8DOTS, 400000, 250) != 1) //colums, rows, characters size
-  if (lcd.begin(16, 2, LCD_5x8DOTS) != 1) //colums, rows, characters size
-  {
-    Serial.println(F("PCF8574 is not connected or lcd pins declaration is wrong. Only pins numbers: 4,5,6,16,11,12,13,14 are legal."));
-    //delay(5000);
-  } else {
-    unsigned long t0 = millis();
-    lcd.clear();
-    lcd.print(F("Let's roll!"));
-    unsigned long t1 = millis();
-    Serial.print("LCD write took in ms: ");
-    Serial.println(t1 - t0);
-  }
-
   //motor_target_duty(100);
-  motor_target_rpm(5);
+  //motor_target_rpm(5);
+  motor_target_duty(0);
   motor_target_rotation_per_cycle(720);
 
   start_millis = millis();
@@ -224,7 +291,9 @@ void kp_handle(char key) {
     if (key == '*') {
       mode = 0;
       buffer.clear();
+      break;
     }
+    mode = 0; // reset mode after one char
     break;
 
   case 'A':
@@ -276,8 +345,9 @@ void kp_handle(char key) {
       buffer += key;
       switch (key) {
       case '0':
-        motor_target_rpm(0);
+        // FIXME: This sets RPM to 50. Why? We need a motor_stop() too.
         motor_target_duty(0);
+        break;
       case '1':
         motor_target_rpm(50);
         break;
@@ -370,12 +440,16 @@ void loop() {
   if (now - last_lcd > 200) {
     //lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.printf("%3d/%2d %3d %3d",
+    lcd.printf("%3d/%2d D%3d",
         motor_rpm(),
         motor_get_target_rpm(),
-        motor_position_degrees(),
         motor_duty()
         );
+    // We defined custom progress characters 0-7 (vertical bar chart)
+    char progress = motor_position_degrees() / 45;
+    lcd.setCursor(15, 0);
+    lcd.write(progress);
+
     auto seconds = (now - start_millis) / 1000;
     auto minutes = seconds / 60;
     seconds = seconds % 60;
