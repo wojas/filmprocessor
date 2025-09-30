@@ -478,11 +478,10 @@ void loop() {
     } else {
       lcd.printf("%3d/%2d D%3d", rpm, motor_get_target_rpm(), duty);
     }
-    // We defined custom progress characters 0-7 (vertical bar chart)
-    // TODO: This should really be 0-8 (inclusive), with 0xFF being a full block.
-    char progress = motor_position_degrees() / 45;
+    // We defined custom progress characters 0-7 (vertical bar chart), and 0xFF is a full bar
+    char progress = motor_position_degrees() / 40;  // 0-8
     lcd.setCursor(15, 0);
-    lcd.write(progress);
+    lcd.write(progress < 8 ? progress : 0xFF);
 
     auto seconds = (now - start_millis) / 1000;
     lcd.setCursor(0, 1);
