@@ -26,7 +26,8 @@ byte progress_char_base[16] = {
 };
 
 #define BUTTON_ROLL 32
-#define BUTTON_TIME 35
+//#define BUTTON_TIME 35
+#define BUTTON_TIME 33
 
 Pushbutton buttonRoll(BUTTON_ROLL);
 Pushbutton buttonTime(BUTTON_TIME);
@@ -509,8 +510,7 @@ void loop() {
     client.publish("letsroll/log", "Button: ROLL pressed"); // unexpected triggers
   }
   if (buttonTime.getSingleDebouncedPress()) {
-    // FIXME: disabled until the button is make more reliable
-    //reset_timer();
+    reset_timer();
     Serial.printf("Button: TIME pressed\n");
     client.publish("letsroll/log", "Button: TIME pressed"); // unexpected triggers
   }
