@@ -180,6 +180,11 @@ void lcd_clear_row(const int row) {
   lcd.setCursor(0, row);
 }
 
+char progress_char(int idx) {
+    // We defined custom progress characters 0-7 (vertical bar chart), and 0xFF is a full block
+  return idx < 8 ? static_cast<char>(idx) : 0xFF;
+}
+
 void setup() {
   Serial.begin(115200);
   pinMode(LED,OUTPUT);
@@ -376,6 +381,7 @@ void kp_handle(char key) {
       buffer.clear();
       buffer += key;
       switch (key) {
+      // These are the different programs
       case '0':
         // This is different from pausing with the ROLL button.
         motor_target_duty(0);
@@ -384,7 +390,7 @@ void kp_handle(char key) {
         motor_target_rpm(50);
         break;
       case '2':
-        motor_target_rpm(75);
+        motor_target_rpm(60);
         break;
       case '3':
         motor_target_rpm(25);
@@ -474,15 +480,19 @@ void loop() {
     lcd.setCursor(0, 0);
     int rpm = motor_rpm();
     int duty = motor_duty();
+
+    // 0-8, only 0 if duty==0
+    char duty_char = duty / 32 + 1;
+    if (duty == 0) duty_char = 0;
+
     if (motor_is_paused() && rpm == 0 && duty == 0) {
-      lcd.printf("[P]/%2d D%3d", motor_get_target_rpm(), duty);
+      lcd.printf("[P]/%2d D%3d%c", motor_get_target_rpm(), duty, duty_char);
     } else {
-      lcd.printf("%3d/%2d D%3d", rpm, motor_get_target_rpm(), duty);
+      lcd.printf("%3d/%2d D%3d%c", rpm, motor_get_target_rpm(), duty, duty_char);
     }
-    // We defined custom progress characters 0-7 (vertical bar chart), and 0xFF is a full bar
     char progress = motor_position_degrees() / 40;  // 0-8
     lcd.setCursor(15, 0);
-    lcd.write(progress < 8 ? progress : 0xFF);
+    lcd.write(progress_char(progress));
 
     auto seconds = (now - start_millis) / 1000;
     lcd.setCursor(0, 1);
