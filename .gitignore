@@ -3,3 +3,4 @@ secrets.h
 .venv
 platformio.local.ini
 .env
+tmp

@@ -17,6 +17,7 @@ These are the major components:
 - 4+ channel level shifter (5V to 3.3V) that can handle i2c speeds
 - 2x16 char i2c LCD display
 - 24V 120W power supply
+- Voltage step-down converter from 24V to 5V to power the ESP32 and LCD
 
 You can probably use most ESP32 boards, but the pinouts may be different. This was the one I happened to have on hand.
 

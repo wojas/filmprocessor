@@ -1,6 +1,9 @@
 [env:ota]
+
 ; Configure this to the actual IP address for OTA updates over wifi
-upload_protocol = espota
 ;upload_port = 192.168.2.1
+
+upload_protocol = espota
+
 ; Optional but strongly recommended password, change for your own!
 ;upload_flags = --auth=tohwieNgiefuel9a
