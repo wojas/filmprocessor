@@ -195,7 +195,7 @@ void setup() {
   {
     Serial.println(F("PCF8574 is not connected or lcd pins declaration is wrong. Only pins numbers: 4,5,6,16,11,12,13,14 are legal."));
     error_blink(10, 500, 200); // takes 7s
-    ESP.restart();
+    //ESP.restart(); // FIXME: If not initialized, can it crash later when writing to it?
   }
   unsigned long t0 = millis();
   lcd.clear();
