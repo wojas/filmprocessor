@@ -13,7 +13,10 @@ extern "C" {
 #define MOTOR_ENCODER_DIR_GPIO 39
 //#define MOTOR_ENCODER_DIR_GPIO MOTOR_DIR_GPIO
 
-#define MOTOR_GEAR_REDUCTION 168 // gear ratio
+// The Aslong 60 RPM motor is 168, the new 76 RPM one is 131
+//#define MOTOR_GEAR_REDUCTION 168 // gear ratio of Aslong 60 RPM
+#define MOTOR_GEAR_REDUCTION 131 // gear ratio of Aslong 76 RPM
+
 #define MOTOR_ENCODER_PRECISION 32 // pulses per internal round
 
 #define MOTOR_PWM_GPIO 14
