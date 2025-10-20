@@ -7,6 +7,15 @@ https://www.printables.com/model/1183451-film-processor-rotationsprozessor-fur-j
 
 If you want to build this yourself, you will need some Arduino or C/C++ programming skills, and the ability and patience to debug electronics projects.
 
+## Getting it up and running
+
+This project uses [PlatformIO](https://platformio.org/). Integration is available to VSCode, CLion and many other IDEs. Please refer to the PlatformIO docs for details.
+
+Initial setup for this project:
+
+- Copy `include/secrets.h.example` to `include/secrets.h` and configure your wifi credentials there.
+- Copy `platformio.local.ini.example` to `platformio.local.ini` to configure ithe IP for OTA updates over wifi.
+
 ## Bill of Materials
 
 These are the major components:
@@ -23,6 +32,11 @@ You can probably use most ESP32 boards, but the pinouts may be different. This w
 
 There is also flexibility in the choice of the DC motor (as long as it fits the form factor) and motor driver module.
 
+Schematic: 
+[PDF](doc/schematic/filmprocessor-schematic.pdf) 
+[other files](doc/schematic/)
+[EasyEDA online](https://oshwlab.com/wojas1/film-processor) 
+
 ## DC motor choice
 
 When I started this project, I had no experience with DC motors.  I found the following Youtube playlists by [Northwestern Robotics](https://www.youtube.com/@NorthwesternRobotics) very useful for a theoretical understanding of DC motors:
@@ -32,6 +46,8 @@ When I started this project, I had no experience with DC motors.  I found the fo
 - [Chapter 26: Gearing and Motor Sizes](https://www.youtube.com/watch?v=D1chF7_pIR0&list=PLggLP4f-rq02tJpO5NUa-w0wP_fL_n72n&pp=0gcJCacEOCosWNin)
 - [Chapter 27: DC Motor Control](https://www.youtube.com/watch?v=6R_3jHeimiE&list=PLggLP4f-rq03w7Bm5M-EjF8Yn4wL_M7HW)
 - [Chapter 28: A Motor Control Project](https://www.youtube.com/watch?v=sMXWoYCmfm4&list=PLggLP4f-rq03WhWvWauGd9ex6ZXGLtrdd)
+
+This project currently does not (yet) follow all the recommendations in these videos.
 
 The DC motor I picked can handle 70 RPM with direction reversal every few seconds. You could pick a version with a higher peak RPM, but lower torque. This should make the motor more quiet. I also read that higher end motors in the same form factor could be more quiet, like Pololu's, but I have not verified this. I went for 24V with the idea that higher voltage = more torque = more better, but a 12V motor may work well enough.
 
