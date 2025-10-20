@@ -5,7 +5,6 @@
 #include "motor.h"
 
 extern "C" {
-
 #define MOTOR_DIR_GPIO 12
 
 // Reverse these pins if the direction is inverted.
@@ -57,17 +56,17 @@ extern "C" {
 //    pcnt_channel_t channel;      /*!< the PCNT channel */
 //} pcnt_config_t;
 pcnt_config_t pcnt_config = {
-    .pulse_gpio_num = MOTOR_ENCODER_PULSE_GPIO,
-    .ctrl_gpio_num = MOTOR_ENCODER_DIR_GPIO,
-    .lctrl_mode = PCNT_MODE_REVERSE, // Reverse count direction if control signal is low
-    .hctrl_mode = PCNT_MODE_KEEP,    // Keep count direction if control signal is high
-    .pos_mode = PCNT_COUNT_INC, // Increment counter on positive edge
-    .neg_mode = PCNT_COUNT_DEC, // Decrement counter on negative edge
-    .counter_h_lim = 32767,
-    .counter_l_lim = -32767,
-    .unit = MOTOR_PCNT_UNIT,
-    .channel = MOTOR_PCNT_CHANNEL,
-};
+        .pulse_gpio_num = MOTOR_ENCODER_PULSE_GPIO,
+        .ctrl_gpio_num = MOTOR_ENCODER_DIR_GPIO,
+        .lctrl_mode = PCNT_MODE_REVERSE, // Reverse count direction if control signal is low
+        .hctrl_mode = PCNT_MODE_KEEP, // Keep count direction if control signal is high
+        .pos_mode = PCNT_COUNT_INC, // Increment counter on positive edge
+        .neg_mode = PCNT_COUNT_DEC, // Decrement counter on negative edge
+        .counter_h_lim = 32767,
+        .counter_l_lim = -32767,
+        .unit = MOTOR_PCNT_UNIT,
+        .channel = MOTOR_PCNT_CHANNEL,
+    };
 
 /*
 void IRAM_ATTR __cdecl motor_pcnt_isr_handler(void *arg) {
@@ -115,11 +114,11 @@ volatile int last_duty = 0;
 void motor_dump_status() {
     Serial.printf("motor_dump_status: direction=%d last=D:%d/RPM:%d "
                   "total_count=%d/%d/%d/%d target=D:%d/RPM:%d/RPC:%d/ROT:%d rotation=%d\n",
-        direction, last_duty, last_rpm,
-        total_count, total_count_abs, total_count_fw, total_count_bw,
-        target_duty, target_rpm, target_rotation_per_cycle, target_rotation,
-        motor_calc_rotation_degrees(total_count)
-        );
+                  direction, last_duty, last_rpm,
+                  total_count, total_count_abs, total_count_fw, total_count_bw,
+                  target_duty, target_rpm, target_rotation_per_cycle, target_rotation,
+                  motor_calc_rotation_degrees(total_count)
+    );
 }
 
 int motor_rpm() {
@@ -186,7 +185,7 @@ void motor_target_rotation_per_cycle(int rot) {
     target_rotation_per_cycle = rot;
     target_rotation =
         motor_calc_rotation_degrees(total_count)
-                + direction * target_rotation_per_cycle;
+        + direction * target_rotation_per_cycle;
 }
 
 void motor_flush_direction() {
@@ -202,7 +201,7 @@ void motor_reverse() {
 }
 
 // This will run at a frequency of 50 Hz (every 20ms) to control the motor
-void motor_monitor_task(void * params) {
+void motor_monitor_task(void* params) {
     const TickType_t xPeriod = 20 / portTICK_PERIOD_MS;
     TickType_t xLastWakeTime = xTaskGetTickCount();
     last_rpm_millis = millis();
@@ -255,10 +254,10 @@ void motor_monitor_task(void * params) {
                 motor_flush_direction();
 
                 Serial.printf("reverse direction=%d rotation=%d target_rotation=%d\n",
-                    direction,
-                    total_rotation,
-                    target_rotation
-                    );
+                              direction,
+                              total_rotation,
+                              target_rotation
+                );
 
                 // No further handling until next tick
                 continue;
@@ -277,7 +276,7 @@ void motor_monitor_task(void * params) {
         // In that case the duty will end up 0 until sufficiently reduced.
         int rpm = direction * last_rpm;
         if (rpm != target_rpm) {
-            int diff = target_rpm - rpm;  // positive if not fast enough
+            int diff = target_rpm - rpm; // positive if not fast enough
             int adjust = diff; // only way now to get a precision of 1
 
             // Limit adjustment per tick (20ms)
@@ -302,7 +301,6 @@ void motor_monitor_task(void * params) {
             ledcWrite(MOTOR_PWM_CHANNEL, duty);
             last_duty = duty;
         }
-
     } // monitor forever loop
 }
 
@@ -355,12 +353,11 @@ void motor_init() {
     // Start monitor task
     TaskHandle_t xHandle = nullptr;
     xTaskCreate(motor_monitor_task,
-        "motor_monitor",
-        2048,
-        nullptr,
-        tskIDLE_PRIORITY + 2,
-        &xHandle);
-    configASSERT( xHandle );
+                "motor_monitor",
+                2048,
+                nullptr,
+                tskIDLE_PRIORITY + 2,
+                &xHandle);
+    configASSERT(xHandle);
 }
-
 } // extern C
