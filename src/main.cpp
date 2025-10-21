@@ -9,6 +9,9 @@
 #include <Keypad.h>
 #include <Pushbutton.h>
 
+#include "mqtt.hpp"
+#include "logger.hpp"
+
 #include "motor.h"
 
 #define LED 2
@@ -37,7 +40,7 @@ const char* password = SECRET_WIFI_PASS;
 uint32_t last_ota_time = 0;
 
 WiFiClient espClient;
-PubSubClient client(espClient);
+//PubSubClient client(espClient);
 unsigned long lastMsg = 0;
 #define MSG_BUFFER_SIZE	(80)
 char msg[MSG_BUFFER_SIZE];
@@ -111,6 +114,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     }
 }
 
+/*
 void mqtt_reconnect() {
     Serial.print("Attempting MQTT connection...");
     // Create a random client ID
@@ -130,6 +134,7 @@ void mqtt_reconnect() {
         Serial.println(" try again later");
     }
 }
+*/
 
 #define KP_ROW_NUM     4 // four rows
 #define KP_COLUMN_NUM  4 // four columns
@@ -185,15 +190,17 @@ char progress_char(int idx) {
     return idx < 8 ? static_cast<char>(idx) : 0xFF;
 }
 
+WiFiClient mqttClient;
+
 void setup() {
     Serial.begin(115200);
     pinMode(LED,OUTPUT);
 
     // Setup LCD for early error output
-    Serial.println("Setting up LCD");
+    LOGLN("Setting up LCD");
     if (lcd.begin(16, 2, LCD_5x8DOTS) != 1) //colums, rows, characters size
     {
-        Serial.println(F(
+        LOGLN(F(
             "PCF8574 is not connected or lcd pins declaration is wrong. Only pins numbers: 4,5,6,16,11,12,13,14 are legal."));
         error_blink(10, 500, 200); // takes 7s
         //ESP.restart(); // FIXME: If not initialized, can it crash later when writing to it?
@@ -202,8 +209,7 @@ void setup() {
     lcd.clear();
     lcd.print(F("Let's roll!"));
     unsigned long t1 = millis();
-    Serial.print("LCD write took in ms: ");
-    Serial.println(t1 - t0);
+    LOGF("LCD write took in ms: %d", t1 - t0);
     for (int i = 0; i < 8; i++) {
         lcd.createChar(i, progress_char_base + i);
     }
@@ -215,7 +221,8 @@ void setup() {
     Serial.print("[WiFi] Connecting to WiFI network ");
     Serial.println(ssid);
     digitalWrite(LED,HIGH);
-    WiFi.setHostname("filmprocessor");
+    const char* name = "filmprocessor";
+    WiFi.setHostname(name);
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
     auto wifi_res = WiFi.waitForConnectResult();
@@ -241,10 +248,25 @@ void setup() {
         lcd_clear_row(1);
     }
 
-    client.setServer(SECRET_MQTT_SERVER, 1883);
+    // Setup MQTT and logging (over serial, telnet, and mqtt)
+    auto clientId = MQTT::genClientId(name);
+    MQTT::begin(mqttClient,
+        SECRET_MQTT_SERVER,
+        1883,
+        clientId.c_str(),
+        SECRET_MQTT_USER,
+        SECRET_MQTT_PASS);
+    MQTT::startTask();
+
+    Logger::enableMQTT("letsroll/log");
+    Logger::beginServer();
+    Logger::startTask();
+
+    //client.setServer(SECRET_MQTT_SERVER, 1883);
     // For incoming messages, including headers. Default: 128
-    client.setBufferSize(255);
-    client.setCallback(mqtt_callback);
+    //client.setBufferSize(255);
+    // FIXME: new receive code in loop()
+    //client.setCallback(mqtt_callback);
 
     // https://github.com/espressif/arduino-esp32/blob/master/libraries/ArduinoOTA/examples/BasicOTA/BasicOTA.ino
     ArduinoOTA.setPassword("thaal6aiJievee");
@@ -441,14 +463,16 @@ void loop() {
     ArduinoOTA.handle();
 
     // FIXME: Cannot block in our app!
-    if (client.connected()) {
-        client.loop();
-    }
+    //if (client.connected()) {
+    //    client.loop();
+    //}
 
     uint32_t now = millis();
     // TODO: in background task
     if (now - lastMsg > 2000) {
         motor_dump_status();
+        lastMsg = now;
+        /*
         if (!client.connected()) {
             Serial.println("MQTT connect");
             mqtt_reconnect();
@@ -463,6 +487,7 @@ void loop() {
             Serial.println(msg);
             client.publish("letsroll/log", msg);
         }
+        */
     }
 
     digitalWrite(LED, motor_is_reversed() ? LOW : HIGH);
@@ -522,13 +547,13 @@ void loop() {
     // Handle the ROLL and TIME button
     if (buttonRoll.getSingleDebouncedPress()) {
         bool is_paused = motor_toggle_paused();
-        Serial.printf("Button: ROLL pressed, paused is now %d\n", is_paused);
-        client.publish("letsroll/log", "Button: ROLL pressed"); // unexpected triggers
+        LOGF("Button: ROLL pressed, paused is now %d\n", is_paused);
+        //client.publish("letsroll/log", "Button: ROLL pressed"); // unexpected triggers
     }
     if (buttonTime.getSingleDebouncedPress()) {
         reset_timer();
         Serial.printf("Button: TIME pressed\n");
-        client.publish("letsroll/log", "Button: TIME pressed"); // unexpected triggers
+        //client.publish("letsroll/log", "Button: TIME pressed"); // unexpected triggers
     }
 
     //Serial.println("loop done");

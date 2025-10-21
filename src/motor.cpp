@@ -2,6 +2,8 @@
 #include <Wire.h>
 #include "driver/pcnt.h"
 
+#include "logger.hpp"
+
 #include "motor.h"
 
 extern "C" {
@@ -112,12 +114,12 @@ volatile int last_duty = 0;
 
 
 void motor_dump_status() {
-    Serial.printf("motor_dump_status: direction=%d last=D:%d/RPM:%d "
-                  "total_count=%d/%d/%d/%d target=D:%d/RPM:%d/RPC:%d/ROT:%d rotation=%d\n",
-                  direction, last_duty, last_rpm,
-                  total_count, total_count_abs, total_count_fw, total_count_bw,
-                  target_duty, target_rpm, target_rotation_per_cycle, target_rotation,
-                  motor_calc_rotation_degrees(total_count)
+    LOGF("motor_dump_status: direction=%d last=D:%d/RPM:%d "
+         "total_count=%d/%d/%d/%d target=D:%d/RPM:%d/RPC:%d/ROT:%d rotation=%d\n",
+         direction, last_duty, last_rpm,
+         total_count, total_count_abs, total_count_fw, total_count_bw,
+         target_duty, target_rpm, target_rotation_per_cycle, target_rotation,
+         motor_calc_rotation_degrees(total_count)
     );
 }
 
