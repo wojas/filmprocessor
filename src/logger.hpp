@@ -5,7 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 
-#include "MQTT.hpp"
+#include "mqtt.hpp"
 
 /*
   Logger — task-safe logging to both Serial and TCP clients.
