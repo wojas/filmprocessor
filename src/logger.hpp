@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+
+#include "logformat.hpp"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 
@@ -60,7 +62,7 @@ public:
         Msg m;
         va_list ap;
         va_start(ap, fmt);
-        int prefix = snprintf(m.buf, sizeof(m.buf), "[%8ld] ", millis());
+        int prefix = logformat_append_prefix(m.buf, sizeof(m.buf));
         int n = vsnprintf(m.buf + prefix, sizeof(m.buf) - prefix, fmt, ap);
         int total = prefix + n;
         va_end(ap);
@@ -213,7 +215,7 @@ private:
     // Early logging to serial and buffer for later replay
     static void _earlyLogf(const char* fmt, ...) {
         char tmp[128];
-        int prefix = snprintf(tmp, sizeof(tmp), "[%8ld] ", millis());
+        int prefix = logformat_append_prefix(tmp, sizeof(tmp));
         va_list ap;
         va_start(ap, fmt);
         int n = vsnprintf(tmp + prefix, sizeof(tmp) - prefix, fmt, ap);

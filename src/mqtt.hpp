@@ -5,6 +5,7 @@
 #include <freertos/task.h>
 #include <freertos/queue.h>
 
+#include "logformat.hpp"
 
 // ---------- Tunables (have defaults) ----------
 #ifndef MQTT_TOPIC_MAX
@@ -52,7 +53,8 @@ public:
                       const char* password = nullptr) {
         // store network + broker
         _net = &net;
-        _broker = broker;
+        String tmp = broker;
+        _broker = tmp; // copy
         _port = port;
 
         _copyStr(_clientId(), MQTT_CLIENTID_MAX, clientId ? clientId : genClientId().c_str());
@@ -62,7 +64,7 @@ public:
         // PubSubClient setup
         _ps.setBufferSize(MQTT_PAYLOAD_MAX);
         _ps.setClient(*_net);
-        _ps.setServer(_broker, _port);
+        _ps.setServer(_broker.c_str(), _port);
         _ps.setCallback(&_onMessageThunk);
 
         // one-time init of queues & pools
@@ -89,7 +91,7 @@ public:
 
         uint16_t idx;
         if (xQueueReceive(_txFreeQ, &idx, 0) != pdTRUE) {
-            Serial.println("(serial only) [MQTT] dropped message, no slot");
+            _logf("[MQTT] dropped message, no slot");
             return false; // no slot → drop
         }
 
@@ -101,7 +103,7 @@ public:
 
         if (xQueueSend(_txQ, &idx, 0) != pdTRUE) {
             // should not fail often
-            Serial.println("(serial only) [MQTT] publishAsync txQ send failed");
+            _logf("[MQTT] publishAsync txQ send failed");
             xQueueSend(_txFreeQ, &idx, 0); // return slot
             return false;
         }
@@ -150,7 +152,7 @@ public:
 
     // -------- Status --------
     static bool connected() { return _ps.connected(); }
-    static const char* broker() { return _broker; }
+    static String broker() { return _broker; }
     static uint16_t port() { return _port; }
     static const char* clientId() { return _clientId(); }
 
@@ -171,10 +173,9 @@ private:
 
     
 private:
-        // Converted to C++17 inline static members (safe subset)
         inline static Client* _net = nullptr;
         inline static PubSubClient _ps;
-        inline static const char* _broker = nullptr;
+        inline static String _broker = "";
         inline static TaskHandle_t _task = nullptr;
         inline static QueueHandle_t _txQ = nullptr;
         inline static QueueHandle_t _txFreeQ = nullptr;
@@ -182,8 +183,9 @@ private:
         inline static QueueHandle_t _rxFreeQ = nullptr;
         inline static TickType_t _backoff = pdMS_TO_TICKS(500);
         inline static uint16_t _port = 1883;
-// -------- Function-local static singletons (header-only & portable) --------
-static TxNode* _txPool() {
+
+    // -------- Function-local static singletons (header-only & portable) --------
+    static TxNode* _txPool() {
         static TxNode pool[MQTT_TX_QUEUE_DEPTH];
         return pool;
     }
@@ -244,25 +246,25 @@ static TxNode* _txPool() {
 
     static void _tryReconnect() {
         if (!_net) {
-            Serial.println("[MQTT] reconnect: no net");
+            _logf("[MQTT] reconnect: no net");
             vTaskDelay(pdMS_TO_TICKS(500));
             return;
         }
         _ps.setClient(*_net);
-        _ps.setServer(_broker, _port);
+        _ps.setServer(_broker.c_str(), _port);
         _ps.setCallback(&_onMessageThunk);
 
         bool ok = false;
         if (_username()[0]) {
-            Serial.printf("[MQTT] connecting with auth (%s)...\n", _broker);
+            _logf("[MQTT] connecting with auth (%s)...\n", _broker.c_str());
             ok = _ps.connect(_clientId(), _username(), _password());
         } else {
-            Serial.printf("[MQTT] connecting without auth (%s)...\n", _broker);
+            _logf("[MQTT] connecting without auth (%s)...\n", _broker.c_str());
             ok = _ps.connect(_clientId());
         }
 
         if (ok) {
-            Serial.println("[MQTT] connected");
+            _logf("[MQTT] connected");
             _backoff = pdMS_TO_TICKS(500);
             _reapplySubs();
             _drainTx();
@@ -343,6 +345,21 @@ static TxNode* _txPool() {
         size_t n = strnlen(src, cap - 1);
         memcpy(dst, src, n);
         dst[n] = '\0';
+    }
+
+    // local log function, because we cannot import the logger
+    // TODO: See how we can still send it to the Logger somehow,
+    //       so that it ends up on serial, telnet, and MQTT.
+    static void _logf(const char* fmt, ...) {
+        char buf[100];
+        va_list ap;
+        va_start(ap, fmt);
+        int prefix = logformat_append_prefix(buf, sizeof(buf), true);
+        int n = vsnprintf(buf + prefix, sizeof(buf) - prefix, fmt, ap);
+        int total = prefix + n;
+        va_end(ap);
+        Serial.write(buf, total);
+        Serial.println("");
     }
 
 public:
