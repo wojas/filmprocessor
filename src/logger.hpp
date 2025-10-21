@@ -60,10 +60,12 @@ public:
         Msg m;
         va_list ap;
         va_start(ap, fmt);
-        int n = vsnprintf(m.buf, sizeof(m.buf), fmt, ap);
+        int prefix = snprintf(m.buf, sizeof(m.buf), "[%8ld] ", millis());
+        int n = vsnprintf(m.buf + prefix, sizeof(m.buf) - prefix, fmt, ap);
+        int total = prefix + n;
         va_end(ap);
         if (n < 0) return;
-        m.len = min(static_cast<int>(sizeof(m.buf)), n);
+        m.len = min(static_cast<int>(sizeof(m.buf)), total);
         if (!queue) {
             // Not yet initialized, early log.
             _earlyLogSize(m.buf, m.len);
@@ -107,13 +109,11 @@ private:
 
         // Flush early logs to mqtt
         if (mqttTopic != nullptr) {
-            Serial.println("(serial only) [LOG] sending early logs to MQTT");
             int sent = 0;
             while (sent < earlyOffset) {
                 int todo = earlyOffset - sent;
                 int n = min(todo, MQTT_PAYLOAD_MAX);
                 bool ok = MQTT::publishAsync(mqttTopic, reinterpret_cast<const uint8_t*>(earlyBuf + sent), n);
-                Serial.printf("(serial only) [LOG] sending one batch of early logs to MQTT: ok=%d\n", ok);
                 sent += n;
             }
         }
@@ -213,14 +213,16 @@ private:
     // Early logging to serial and buffer for later replay
     static void _earlyLogf(const char* fmt, ...) {
         char tmp[128];
+        int prefix = snprintf(tmp, sizeof(tmp), "[%8ld] ", millis());
         va_list ap;
         va_start(ap, fmt);
-        int n = vsnprintf(tmp, sizeof(tmp), fmt, ap);
+        int n = vsnprintf(tmp + prefix, sizeof(tmp) - prefix, fmt, ap);
         va_end(ap);
+        int total = prefix + n;
         if (n > 0) {
-            Serial.write(tmp, n);
+            Serial.write(tmp, total);
             Serial.write("\n", 1);
-            _earlyAppendSize(tmp, n);
+            _earlyAppendSize(tmp, total);
         }
     }
 
@@ -238,7 +240,8 @@ private:
         if (earlyClosed) return;
         if (earlyOffset + n >= kEarlyLogBytes - 1) {
             earlyClosed = true;
-            Serial.println("[LOG] Early logging buffer full");
+            // For formatted output
+            _earlyLogf("[LOG] Early logging buffer full");
             return;
         }
         memcpy(earlyBuf + earlyOffset, msg, n);

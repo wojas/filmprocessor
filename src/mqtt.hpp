@@ -1,10 +1,10 @@
 #pragma once
 #include <Arduino.h>
 #include <PubSubClient.h>
-#include <IPAddress.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
+
 
 // ---------- Tunables (have defaults) ----------
 #ifndef MQTT_TOPIC_MAX
@@ -31,6 +31,7 @@
 #ifndef MQTT_PASS_MAX
 #define MQTT_PASS_MAX         64
 #endif
+
 
 class MQTT {
 public:

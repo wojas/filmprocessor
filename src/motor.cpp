@@ -255,10 +255,10 @@ void motor_monitor_task(void* params) {
                 target_rotation += direction * target_rotation_per_cycle;
                 motor_flush_direction();
 
-                Serial.printf("reverse direction=%d rotation=%d target_rotation=%d\n",
-                              direction,
-                              total_rotation,
-                              target_rotation
+                LOGF("reverse direction=%d rotation=%d target_rotation=%d\n",
+                     direction,
+                     total_rotation,
+                     target_rotation
                 );
 
                 // No further handling until next tick
@@ -311,7 +311,7 @@ void motor_init() {
     //
     // Pulse counter
     //
-    Serial.println("Setting up motor pulse counter");
+    LOGF("Setting up motor pulse counter");
 
     pcnt_unit_config(&pcnt_config);
 
@@ -336,7 +336,7 @@ void motor_init() {
     //
     // Motor driver
     //
-    Serial.println("Setting up motor driver");
+    LOGF("Setting up motor driver");
 
     // Set up the PWM channel
     ledcSetup(MOTOR_PWM_CHANNEL, MOTOR_PWN_FREQ, MOTOR_PWN_RES);
