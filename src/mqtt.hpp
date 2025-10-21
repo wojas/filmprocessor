@@ -8,7 +8,7 @@
 
 // ---------- Tunables (have defaults) ----------
 #ifndef MQTT_TOPIC_MAX
-#define MQTT_TOPIC_MAX        32
+#define MQTT_TOPIC_MAX        64
 #endif
 #ifndef MQTT_PAYLOAD_MAX
 #define MQTT_PAYLOAD_MAX      1024
@@ -59,6 +59,7 @@ public:
         _copyStr(_password(), MQTT_PASS_MAX, password ? password : "");
 
         // PubSubClient setup
+        _ps().setBufferSize(MQTT_PAYLOAD_MAX);
         _ps().setClient(*_net());
         _ps().setServer(_broker(), _port());
         _ps().setCallback(&_onMessageThunk);
@@ -81,29 +82,33 @@ public:
     }
 
     // -------- Publish (enqueue; never blocks) --------
-    static bool publishAsync(const char* topic, const uint8_t* data, size_t len, bool retain = false) {
+    static bool publishAsync(const char* topic, const uint8_t* data, size_t len) {
         if (!topic || !*topic || !data || len == 0) return false;
         if (len > MQTT_PAYLOAD_MAX) len = MQTT_PAYLOAD_MAX;
 
         uint16_t idx;
-        if (xQueueReceive(_txFreeQ(), &idx, 0) != pdTRUE) return false; // no slot → drop
+        if (xQueueReceive(_txFreeQ(), &idx, 0) != pdTRUE) {
+            Serial.println("(serial only) [MQTT] dropped message, no slot");
+            return false; // no slot → drop
+        }
 
         auto& n = _txPool()[idx];
         _copyStr(n.topic, MQTT_TOPIC_MAX, topic);
         n.len = static_cast<uint16_t>(len);
         memcpy(n.payload, data, len);
-        n.retain = retain;
+        n.retain = false;
 
         if (xQueueSend(_txQ(), &idx, 0) != pdTRUE) {
             // should not fail often
+            Serial.println("(serial only) [MQTT] publishAsync txQ send failed");
             xQueueSend(_txFreeQ(), &idx, 0); // return slot
             return false;
         }
         return true;
     }
 
-    static bool publishAsync(const char* topic, const char* s, bool retain = false) {
-        return s ? publishAsync(topic, reinterpret_cast<const uint8_t*>(s), strlen(s), retain) : false;
+    static bool publishAsync(const char* topic, const char* s) {
+        return s ? publishAsync(topic, reinterpret_cast<const uint8_t*>(s), strlen(s)) : false;
     }
 
     // -------- Subscribe (applied immediately if connected; remembered otherwise) --------

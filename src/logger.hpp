@@ -107,11 +107,13 @@ private:
 
         // Flush early logs to mqtt
         if (mqttTopic != nullptr) {
+            Serial.println("(serial only) [LOG] sending early logs to MQTT");
             int sent = 0;
             while (sent < earlyOffset) {
                 int todo = earlyOffset - sent;
                 int n = min(todo, MQTT_PAYLOAD_MAX);
-                MQTT::publishAsync(mqttTopic, earlyBuf + sent, n);
+                bool ok = MQTT::publishAsync(mqttTopic, reinterpret_cast<const uint8_t*>(earlyBuf + sent), n);
+                Serial.printf("(serial only) [LOG] sending one batch of early logs to MQTT: ok=%d\n", ok);
                 sent += n;
             }
         }
@@ -177,7 +179,7 @@ private:
         }
 
         if (mqttTopic != nullptr) {
-            MQTT::publishAsync(mqttTopic, m.buf, m.len);
+            MQTT::publishAsync(mqttTopic, reinterpret_cast<const uint8_t*>(m.buf), m.len);
         }
 
         // Then to all clients (non-blocking; drop slow/broken)
@@ -185,6 +187,11 @@ private:
             if (!c || !c.connected()) continue;
             if (!_writeAll(c, m.buf, m.len)) {
                 // drop if stalled
+                c.stop();
+                return;
+            }
+            int wn = c.write("\n", 1);
+            if (wn <= 0) {
                 c.stop();
                 return;
             }
@@ -199,10 +206,6 @@ private:
                 return false; // drop if stalled
             }
             off += w;
-        }
-        int wn = c.write("\n", 1);
-        if (wn <= 0) {
-            return false;
         }
         return true;
     }
