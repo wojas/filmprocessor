@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+
 #include "MQTT.hpp"
 
 /*
@@ -20,11 +21,13 @@
 */
 class Logger {
 public:
-    // These defaults use 16 kB for the buffering, out of the ESP32's 520 kB RAM.
+    // These defaults use 16 kB for the buffering, out of the ESP32's 520 kB RAM,
+    // plus an additional 4 kB for early logs before we have network logging.
     static constexpr size_t kMaxMsgBytes = 256; // max size of a single log message
     static constexpr uint8_t kMaxClients = 4; // simultaneous TCP viewers
     static constexpr uint16_t kDefaultPort = 23; // default TCP port (telnet)
     static constexpr uint16_t kQueueDepth = 64; // number of messages buffered
+    static constexpr size_t kEarlyLogBytes = 4096; // early log replay buffer size
     static constexpr TickType_t kLogTick = pdMS_TO_TICKS(50); // interval we send one message
 
     struct Msg {
@@ -34,7 +37,7 @@ public:
 
     // Call before beginServer.
     static void enableMQTT(const char* topic) {
-        Serial.printf("[LOG] MQTT topic: %s\n", topic);
+        _earlyLogf("[LOG] MQTT topic: %s", topic);
         mqttTopic = topic;
     }
 
@@ -42,13 +45,13 @@ public:
         server = new WiFiServer(port);
         server->begin();
         server->setNoDelay(true);
-        Serial.print("[LOG] TCP log server on port ");
-        Serial.println(port);
+        _earlyLogf("[LOG] TCP log server on port %d", port);
     }
 
     static void startTask(uint32_t stack = 4096, UBaseType_t prio = 3, BaseType_t core = APP_CPU_NUM) {
-        if (!queue) queue = xQueueCreate(kQueueDepth, sizeof(Msg));
-        Serial.println("[LOG] queued network logging enabled from now on");
+        if (!queue) {
+            queue = xQueueCreate(kQueueDepth, sizeof(Msg));
+        }
         xTaskCreatePinnedToCore(_taskEntry, "logger", stack, nullptr, prio, nullptr, core);
     }
 
@@ -60,12 +63,12 @@ public:
         int n = vsnprintf(m.buf, sizeof(m.buf), fmt, ap);
         va_end(ap);
         if (n < 0) return;
+        m.len = min(static_cast<int>(sizeof(m.buf)), n);
         if (!queue) {
-            // Not yet initialized, just print to serial.
-            Serial.print(m.buf);
+            // Not yet initialized, early log.
+            _earlyLogSize(m.buf, m.len);
             return;
         }
-        m.len = min(static_cast<int>(sizeof(m.buf)), n);
         const bool ok = xQueueSend(queue, &m, 0); // drop if full
         if (!ok) {
             droppedMessages++;
@@ -92,7 +95,7 @@ public:
         Msg m;
         size_t n = strnlen(s, sizeof(m.buf));
         memcpy(m.buf, s, n);
-        m.len = (uint16_t)n;
+        m.len = n;
         BaseType_t hpw = pdFALSE;
         xQueueSendFromISR(queue, &m, &hpw);
         portYIELD_FROM_ISR(hpw);
@@ -100,6 +103,20 @@ public:
 
 private:
     static void _taskEntry(void*) {
+        _earlyLogf("[LOG] Logging task started");
+
+        // Flush early logs to mqtt
+        if (mqttTopic != nullptr) {
+            int sent = 0;
+            while (sent < earlyOffset) {
+                int todo = earlyOffset - sent;
+                int n = min(todo, MQTT_PAYLOAD_MAX);
+                MQTT::publishAsync(mqttTopic, earlyBuf + sent, n);
+                sent += n;
+            }
+        }
+
+        // Main loop
         for (;;) {
             _acceptClients();
             _pruneAndDrain();
@@ -117,7 +134,11 @@ private:
                     c.setNoDelay(true);
                     // ignore any inbound data (monitor-only)
                     while (c.available()) c.read();
-                    _serialPrintf("[LOG] Client connected (%s)\n", c.remoteIP().toString().c_str());
+                    _earlyLogf("[LOG] Client connected (%s)", c.remoteIP().toString().c_str());
+                    // Send early logs to client, ignore if it stalls here
+                    c.write("--- early logs ---\n");
+                    _writeAll(c, earlyBuf, earlyOffset);
+                    c.write("--- early logs end ---\n");
                     return;
                 }
             }
@@ -130,7 +151,7 @@ private:
     static void _pruneAndDrain() {
         for (auto& c : clients) {
             if (c && !c.connected()) {
-                _serialPrintf("[LOG] Client disconnected\n");
+                _earlyLogf("[LOG] Client disconnected");
                 c.stop();
             } else {
                 while (c && c.connected() && c.available()) c.read(); // ignore input
@@ -144,8 +165,12 @@ private:
         Msg m;
         if (xQueueReceive(queue, &m, 0) != pdTRUE) return;
 
+        // Append to early log as long as it is not full
+        _earlyAppendSize(m.buf, m.len);
+
         // Always write to Serial
         Serial.write(m.buf, m.len);
+        Serial.write("\n", 1);
 
         if (!WiFi.isConnected()) {
             return;
@@ -158,27 +183,67 @@ private:
         // Then to all clients (non-blocking; drop slow/broken)
         for (auto& c : clients) {
             if (!c || !c.connected()) continue;
-            size_t off = 0;
-            while (off < m.len) {
-                int w = c.write(m.buf + off, m.len - off);
-                if (w <= 0) {
-                    c.stop();
-                    break;
-                } // drop if stalled
-                off += w;
+            if (!_writeAll(c, m.buf, m.len)) {
+                // drop if stalled
+                c.stop();
+                return;
             }
         }
     }
 
-    // Internal logging only to serial
-    static void _serialPrintf(const char* fmt, ...) {
+    static bool _writeAll(WiFiClient& c, const char* buf, size_t len) {
+        size_t off = 0;
+        while (off < len) {
+            int w = c.write(buf + off, len - off);
+            if (w <= 0) {
+                return false; // drop if stalled
+            }
+            off += w;
+        }
+        int wn = c.write("\n", 1);
+        if (wn <= 0) {
+            return false;
+        }
+        return true;
+    }
+
+    // Early logging to serial and buffer for later replay
+    static void _earlyLogf(const char* fmt, ...) {
         char tmp[128];
         va_list ap;
         va_start(ap, fmt);
         int n = vsnprintf(tmp, sizeof(tmp), fmt, ap);
         va_end(ap);
-        if (n > 0) Serial.write(reinterpret_cast<const uint8_t*>(tmp), (size_t)min(n, (int)sizeof(tmp)));
+        if (n > 0) {
+            Serial.write(tmp, n);
+            Serial.write("\n", 1);
+            _earlyAppendSize(tmp, n);
+        }
     }
+
+    static void _earlyLogSize(const char* msg, size_t n) {
+        if (msg[0] == 0) {
+            return;
+        }
+        Serial.write(msg, n);
+        Serial.write("\n", 1);
+        _earlyAppendSize(msg, n);
+    }
+
+    static void _earlyAppendSize(const char* msg, size_t n) {
+        // Write to early buffer for replay if still open
+        if (earlyClosed) return;
+        if (earlyOffset + n >= kEarlyLogBytes - 1) {
+            earlyClosed = true;
+            Serial.println("[LOG] Early logging buffer full");
+            return;
+        }
+        memcpy(earlyBuf + earlyOffset, msg, n);
+        earlyOffset += n;
+        earlyBuf[earlyOffset] = '\n';
+        earlyOffset++;
+    }
+
 
 private:
     static inline WiFiServer* server = nullptr;
@@ -187,9 +252,13 @@ private:
     volatile static inline uint32_t droppedMessages = 0; // volatile is good enough for this
     static inline uint32_t lastDroppedMessages = 0;
     static inline const char* mqttTopic = nullptr;
+
+    static inline bool earlyClosed = false;
+    static inline char earlyBuf[kEarlyLogBytes];
+    static inline int earlyOffset = 0;
 };
 
 // Convenience macros
 #define LOGF(...)  Logger::printf(__VA_ARGS__)
-#define LOGLN(s)   Logger::println(s)
-#define LOG(s)     Logger::print(s)
+//#define LOGLN(s)   Logger::println(s)
+//#define LOG(s)     Logger::print(s)

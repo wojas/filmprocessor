@@ -47,19 +47,13 @@ char msg[MSG_BUFFER_SIZE];
 int value = 0;
 
 void mqtt_callback(char* topic, byte* payload, unsigned int length) {
-    Serial.print("[MQTT] Message arrived [");
-    Serial.print(topic);
-    Serial.print("] ");
-    for (int i = 0; i < length; i++) {
-        Serial.print((char)payload[i]);
-    }
-    Serial.println();
+    LOGF("[MQTT] Message topic=%s : %.*s", topic, length, payload);
 
     auto topicString = String(topic);
 
     if (topic == "letsroll/reboot") {
         motor_target_duty(0);
-        Serial.println("[MQTT] reboot requested");
+        LOGF("[MQTT] reboot requested");
         lcd.clear();
         lcd.setCursor(0, 0);
         lcd.print("MQTT reboot!");
@@ -70,7 +64,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 
     // Below is all topic letsroll/motor/control
     if (topicString != "letsroll/motor/control") {
-        Serial.println("Unhandled topic");
+        LOGF("[MQTT] Unhandled topic: %s", topic);
         return;
     }
     if (length < 2) {
@@ -197,11 +191,10 @@ void setup() {
     pinMode(LED,OUTPUT);
 
     // Setup LCD for early error output
-    LOGLN("Setting up LCD");
+    LOGF("Setting up LCD");
     if (lcd.begin(16, 2, LCD_5x8DOTS) != 1) //colums, rows, characters size
     {
-        LOGLN(F(
-            "PCF8574 is not connected or lcd pins declaration is wrong. Only pins numbers: 4,5,6,16,11,12,13,14 are legal."));
+        LOGF("PCF8574 is not connected or lcd pins declaration is wrong. Only pins numbers: 4,5,6,16,11,12,13,14 are legal.");
         error_blink(10, 500, 200); // takes 7s
         //ESP.restart(); // FIXME: If not initialized, can it crash later when writing to it?
     }
@@ -218,8 +211,7 @@ void setup() {
     lcd_clear_row(1);
     lcd.print(F("WiFi:"));
     lcd.print(ssid);
-    Serial.print("[WiFi] Connecting to WiFI network ");
-    Serial.println(ssid);
+    LOGF("[WiFi] Connecting to WiFI network %s", ssid);
     digitalWrite(LED,HIGH);
     const char* name = "filmprocessor";
     WiFi.setHostname(name);
@@ -237,9 +229,7 @@ void setup() {
     } else {
         // Display IP
         auto ip = WiFi.localIP();
-        Serial.println("[WiFI] connected");
-        Serial.print("[WiFi] IP address: ");
-        Serial.println(ip);
+        LOGF("[WiFi] connected, IP address: %s", ip.toString().c_str());
 
         // Display IP for 500ms
         lcd_clear_row(1);
@@ -269,7 +259,7 @@ void setup() {
     //client.setCallback(mqtt_callback);
 
     // https://github.com/espressif/arduino-esp32/blob/master/libraries/ArduinoOTA/examples/BasicOTA/BasicOTA.ino
-    ArduinoOTA.setPassword("thaal6aiJievee");
+    ArduinoOTA.setPassword("thaal6aiJievee"); // FIXME: move to header
     ArduinoOTA
         .onStart([]()
         {
@@ -285,7 +275,7 @@ void setup() {
             motor_target_duty(0);
 
             // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-            Serial.println("Start updating " + type);
+            LOGF("[OTA] Start updating %s", type.c_str());
             lcd.clear();
             lcd.print("Update " + type);
         })
@@ -297,7 +287,7 @@ void setup() {
         .onProgress([](unsigned int progress, unsigned int total)
         {
             if (millis() - last_ota_time > 500) {
-                Serial.printf("Progress: %u%%\n", (progress / (total / 100)));
+                LOGF("[OTA] Progress: %u%%", (progress / (total / 100)));
                 last_ota_time = millis();
             }
             lcd.setCursor(0, 1);
@@ -319,7 +309,7 @@ void setup() {
             } else if (error == OTA_END_ERROR) {
                 err = "End Failed";
             }
-            Serial.printf("Error[%u]: %s", error, err);
+            LOGF("[OTA] Error %u: %s", error, err);
             lcd.clear();
             lcd.setCursor(0, 0);
             lcd.printf("Error %u", error);
@@ -336,7 +326,7 @@ void setup() {
 
     start_millis = millis();
     last_reversal = start_millis;
-    Serial.println("Setup done");
+    LOGF("setup() done");
 }
 
 int last_dt = 0;
@@ -492,20 +482,6 @@ void loop() {
 
     digitalWrite(LED, motor_is_reversed() ? LOW : HIGH);
 
-    //Serial.println("- duty on");
-    //auto t0 = millis();
-    //motor_duty(100);
-    //delay(100);
-    //auto t1 = millis();
-
-    //last_dt = static_cast<int>(t1 - t0);
-
-    //Serial.println("- duty 0");
-    //motor_duty(0);
-    //Serial.println("- delay 200ms ");
-    //delay(100);
-    //Serial.println("motor handling done");
-
     if (now - last_lcd > 200) {
         //lcd.clear();
         lcd.setCursor(0, 0);
@@ -547,12 +523,12 @@ void loop() {
     // Handle the ROLL and TIME button
     if (buttonRoll.getSingleDebouncedPress()) {
         bool is_paused = motor_toggle_paused();
-        LOGF("Button: ROLL pressed, paused is now %d\n", is_paused);
+        LOGF("Button: ROLL pressed, paused is now %d", is_paused);
         //client.publish("letsroll/log", "Button: ROLL pressed"); // unexpected triggers
     }
     if (buttonTime.getSingleDebouncedPress()) {
         reset_timer();
-        Serial.printf("Button: TIME pressed\n");
+        LOGF("Button: TIME pressed");
         //client.publish("letsroll/log", "Button: TIME pressed"); // unexpected triggers
     }
 
