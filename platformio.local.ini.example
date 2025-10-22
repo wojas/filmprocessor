@@ -1,8 +1,19 @@
 [env:ota]
 
 ; Configure this to the actual IP address for OTA updates over wifi
-;upload_port = 192.168.2.1
+upload_port = 192.168.2.1
 
+; Also set the same IP address here to connect to the monitor
+; over TCP instead of serial when doing OTA.
+monitor_port = socket://192.168.2.1:23
+monitor_dtr = 0
+monitor_rts = 0
+; Delay monitoring in this case to avoid timeouts.
+; Logs are buffered before the network is available.
+extra_scripts = post:helpers/delay_monitor.py
+
+; This is the only relevant one for OTA, most others are for
+; special programmer interfaces.
 upload_protocol = espota
 
 ; Optional but strongly recommended password, change for your own!

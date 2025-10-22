@@ -9,6 +9,9 @@
 #include <Keypad.h>
 #include <Pushbutton.h>
 
+#include "mqtt.hpp"
+#include "logger.hpp"
+
 #include "motor.h"
 
 #define LED 2
@@ -37,26 +40,20 @@ const char* password = SECRET_WIFI_PASS;
 uint32_t last_ota_time = 0;
 
 WiFiClient espClient;
-PubSubClient client(espClient);
+//PubSubClient client(espClient);
 unsigned long lastMsg = 0;
 #define MSG_BUFFER_SIZE	(80)
 char msg[MSG_BUFFER_SIZE];
 int value = 0;
 
-void mqtt_callback(char* topic, byte* payload, unsigned int length) {
-    Serial.print("[MQTT] Message arrived [");
-    Serial.print(topic);
-    Serial.print("] ");
-    for (int i = 0; i < length; i++) {
-        Serial.print((char)payload[i]);
-    }
-    Serial.println();
+void mqtt_callback(const char* topic, const byte* payload, unsigned int length) {
+    LOGF("[MQTT] Message topic=%s : %.*s", topic, length, payload);
 
     auto topicString = String(topic);
 
-    if (topic == "letsroll/reboot") {
+    if (topicString == "letsroll/reboot") {
         motor_target_duty(0);
-        Serial.println("[MQTT] reboot requested");
+        LOGF("[MQTT] reboot requested");
         lcd.clear();
         lcd.setCursor(0, 0);
         lcd.print("MQTT reboot!");
@@ -65,17 +62,16 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
         return;
     }
 
-    // Below is all topic letsroll/motor/control
-    if (topicString != "letsroll/motor/control") {
-        Serial.println("Unhandled topic");
+    // Below is all topic letsroll/control
+    if (topicString != "letsroll/control") {
+        LOGF("[MQTT] Unhandled topic: %s", topic);
         return;
     }
     if (length < 2) {
         return; // cannot be valid
     }
-    auto s = String(reinterpret_cast<char*>(payload), length);
-    byte command = payload[0];
-    switch (command) {
+    auto s = String(payload, length);
+    switch (byte command = payload[0]) {
     case 'R':
         {
             // Set RPM
@@ -111,25 +107,6 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     }
 }
 
-void mqtt_reconnect() {
-    Serial.print("Attempting MQTT connection...");
-    // Create a random client ID
-    String clientId = "letsroll-";
-    clientId += String(random(0xffff), HEX);
-    // Attempt to connect
-    if (client.connect(clientId.c_str(), SECRET_MQTT_USER, SECRET_MQTT_PASS)) {
-        Serial.println("connected");
-        // Once connected, publish an announcement...
-        client.publish("letsroll/hello", "hello world");
-        // ... and resubscribe
-        client.subscribe("letsroll/motor/control");
-        client.subscribe("letsroll/reboot");
-    } else {
-        Serial.print("failed, rc=");
-        Serial.print(client.state());
-        Serial.println(" try again later");
-    }
-}
 
 #define KP_ROW_NUM     4 // four rows
 #define KP_COLUMN_NUM  4 // four columns
@@ -185,16 +162,17 @@ char progress_char(int idx) {
     return idx < 8 ? static_cast<char>(idx) : 0xFF;
 }
 
+WiFiClient mqttClient;
+
 void setup() {
     Serial.begin(115200);
     pinMode(LED,OUTPUT);
 
     // Setup LCD for early error output
-    Serial.println("Setting up LCD");
+    LOGF("Setting up LCD");
     if (lcd.begin(16, 2, LCD_5x8DOTS) != 1) //colums, rows, characters size
     {
-        Serial.println(F(
-            "PCF8574 is not connected or lcd pins declaration is wrong. Only pins numbers: 4,5,6,16,11,12,13,14 are legal."));
+        LOGF("PCF8574 is not connected or lcd pins declaration is wrong. Only pins numbers: 4,5,6,16,11,12,13,14 are legal.");
         error_blink(10, 500, 200); // takes 7s
         //ESP.restart(); // FIXME: If not initialized, can it crash later when writing to it?
     }
@@ -202,8 +180,7 @@ void setup() {
     lcd.clear();
     lcd.print(F("Let's roll!"));
     unsigned long t1 = millis();
-    Serial.print("LCD write took in ms: ");
-    Serial.println(t1 - t0);
+    LOGF("LCD write took in ms: %d", t1 - t0);
     for (int i = 0; i < 8; i++) {
         lcd.createChar(i, progress_char_base + i);
     }
@@ -212,10 +189,10 @@ void setup() {
     lcd_clear_row(1);
     lcd.print(F("WiFi:"));
     lcd.print(ssid);
-    Serial.print("[WiFi] Connecting to WiFI network ");
-    Serial.println(ssid);
+    LOGF("[WiFi] Connecting to WiFI network %s", ssid);
     digitalWrite(LED,HIGH);
-    WiFi.setHostname("filmprocessor");
+    const char* name = "filmprocessor";
+    WiFi.setHostname(name);
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
     auto wifi_res = WiFi.waitForConnectResult();
@@ -230,9 +207,7 @@ void setup() {
     } else {
         // Display IP
         auto ip = WiFi.localIP();
-        Serial.println("[WiFI] connected");
-        Serial.print("[WiFi] IP address: ");
-        Serial.println(ip);
+        LOGF("[WiFi] connected, IP address: %s", ip.toString().c_str());
 
         // Display IP for 500ms
         lcd_clear_row(1);
@@ -241,13 +216,27 @@ void setup() {
         lcd_clear_row(1);
     }
 
-    client.setServer(SECRET_MQTT_SERVER, 1883);
-    // For incoming messages, including headers. Default: 128
-    client.setBufferSize(255);
-    client.setCallback(mqtt_callback);
+    // Setup MQTT and logging (over serial, telnet, and mqtt)
+    auto clientId = MQTT::genClientId(name);
+    MQTT::begin(mqttClient,
+        SECRET_MQTT_SERVER,
+        1883,
+        clientId.c_str(),
+        SECRET_MQTT_USER,
+        SECRET_MQTT_PASS);
+    MQTT::startTask();
+
+    Logger::enableMQTT("letsroll/log");
+    Logger::beginServer();
+    Logger::startTask();
+
+    // Once connected, publish an announcement...
+    MQTT::publishAsync("letsroll/hello", "hello world");
+    MQTT::subscribe("letsroll/control");
+    MQTT::subscribe("letsroll/reboot");
 
     // https://github.com/espressif/arduino-esp32/blob/master/libraries/ArduinoOTA/examples/BasicOTA/BasicOTA.ino
-    ArduinoOTA.setPassword("thaal6aiJievee");
+    ArduinoOTA.setPassword("thaal6aiJievee"); // FIXME: move to header
     ArduinoOTA
         .onStart([]()
         {
@@ -263,7 +252,7 @@ void setup() {
             motor_target_duty(0);
 
             // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-            Serial.println("Start updating " + type);
+            LOGF("[OTA] Start updating %s", type.c_str());
             lcd.clear();
             lcd.print("Update " + type);
         })
@@ -275,7 +264,7 @@ void setup() {
         .onProgress([](unsigned int progress, unsigned int total)
         {
             if (millis() - last_ota_time > 500) {
-                Serial.printf("Progress: %u%%\n", (progress / (total / 100)));
+                LOGF("[OTA] Progress: %u%%", (progress / (total / 100)));
                 last_ota_time = millis();
             }
             lcd.setCursor(0, 1);
@@ -297,7 +286,7 @@ void setup() {
             } else if (error == OTA_END_ERROR) {
                 err = "End Failed";
             }
-            Serial.printf("Error[%u]: %s", error, err);
+            LOGF("[OTA] Error %u: %s", error, err);
             lcd.clear();
             lcd.setCursor(0, 0);
             lcd.printf("Error %u", error);
@@ -314,7 +303,7 @@ void setup() {
 
     start_millis = millis();
     last_reversal = start_millis;
-    Serial.println("Setup done");
+    LOGF("setup() done");
 }
 
 int last_dt = 0;
@@ -440,47 +429,24 @@ void loop() {
 
     ArduinoOTA.handle();
 
-    // FIXME: Cannot block in our app!
-    if (client.connected()) {
-        client.loop();
-    }
-
     uint32_t now = millis();
-    // TODO: in background task
-    if (now - lastMsg > 2000) {
+    if (now - lastMsg > 10000) {
         motor_dump_status();
-        if (!client.connected()) {
-            Serial.println("MQTT connect");
-            mqtt_reconnect();
-            Serial.println("MQTT connect finished");
-        }
-        if (client.connected()) {
-            lastMsg = now;
-            ++value;
-            snprintf(msg, MSG_BUFFER_SIZE, "Motor: %d RPM, %d deg, %d duty",
-                     motor_rpm(), motor_position_degrees(), motor_duty());
-            Serial.print("Publish message: ");
-            Serial.println(msg);
-            client.publish("letsroll/log", msg);
-        }
+        lastMsg = now;
     }
 
     digitalWrite(LED, motor_is_reversed() ? LOW : HIGH);
 
-    //Serial.println("- duty on");
-    //auto t0 = millis();
-    //motor_duty(100);
-    //delay(100);
-    //auto t1 = millis();
+    // MQTT incoming message handling
+    MQTT::RxView msg;
+    if (MQTT::recv(msg, 0)) {
+        // handle one message
+        LOGF("[MQTT] received %s : %.*s", msg.topic, msg.len, reinterpret_cast<const char*>(msg.payload));
+        mqtt_callback(msg.topic, msg.payload, msg.len);
+        MQTT::free(msg);  // IMPORTANT: return the slot to the pool
+    }
 
-    //last_dt = static_cast<int>(t1 - t0);
-
-    //Serial.println("- duty 0");
-    //motor_duty(0);
-    //Serial.println("- delay 200ms ");
-    //delay(100);
-    //Serial.println("motor handling done");
-
+    // LCD update
     if (now - last_lcd > 200) {
         //lcd.clear();
         lcd.setCursor(0, 0);
@@ -514,21 +480,17 @@ void loop() {
     char key = keypad.getKey();
     if (key) {
         Serial.printf("Keypad: %c\n", key);
-        //lcd.setCursor(15, 1);
-        //lcd.write(key);
         kp_handle(key);
     }
 
     // Handle the ROLL and TIME button
     if (buttonRoll.getSingleDebouncedPress()) {
         bool is_paused = motor_toggle_paused();
-        Serial.printf("Button: ROLL pressed, paused is now %d\n", is_paused);
-        client.publish("letsroll/log", "Button: ROLL pressed"); // unexpected triggers
+        LOGF("Button: ROLL pressed, paused is now %d", is_paused);
     }
     if (buttonTime.getSingleDebouncedPress()) {
         reset_timer();
-        Serial.printf("Button: TIME pressed\n");
-        client.publish("letsroll/log", "Button: TIME pressed"); // unexpected triggers
+        LOGF("Button: TIME pressed");
     }
 
     //Serial.println("loop done");

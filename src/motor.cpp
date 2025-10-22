@@ -2,6 +2,9 @@
 #include <Wire.h>
 #include "driver/pcnt.h"
 
+#include "logger.hpp"
+#include "mqtt.hpp"
+
 #include "motor.h"
 
 extern "C" {
@@ -112,12 +115,12 @@ volatile int last_duty = 0;
 
 
 void motor_dump_status() {
-    Serial.printf("motor_dump_status: direction=%d last=D:%d/RPM:%d "
-                  "total_count=%d/%d/%d/%d target=D:%d/RPM:%d/RPC:%d/ROT:%d rotation=%d\n",
-                  direction, last_duty, last_rpm,
-                  total_count, total_count_abs, total_count_fw, total_count_bw,
-                  target_duty, target_rpm, target_rotation_per_cycle, target_rotation,
-                  motor_calc_rotation_degrees(total_count)
+    LOGF("motor_dump_status: direction=%d last=D:%d/RPM:%d "
+         "total_count=%d/%d/%d/%d target=D:%d/RPM:%d/RPC:%d/ROT:%d rotation=%d",
+         direction, last_duty, last_rpm,
+         total_count, total_count_abs, total_count_fw, total_count_bw,
+         target_duty, target_rpm, target_rotation_per_cycle, target_rotation,
+         motor_calc_rotation_degrees(total_count)
     );
 }
 
@@ -200,6 +203,47 @@ void motor_reverse() {
     motor_flush_direction();
 }
 
+// Send batched metrics over MQTT
+void _flush_stats(unsigned long msec, bool flushOnly = false) {
+    static char buf[MQTT_PAYLOAD_MAX];
+    static size_t offset = 0;
+    static size_t header_size = 0;
+
+    if ( (flushOnly && offset <= header_size) || (sizeof(buf) - offset < 100) ) {
+        // Flush to MQTT (this copies the data)
+        MQTT::publishAsync("letsroll/motor/csv", reinterpret_cast<const uint8_t*>(buf), offset);
+        // Keep the header, but overwrite data
+        offset = header_size;
+    }
+    if (flushOnly) {
+        return;
+    }
+
+    if (offset == 0) {
+        // Write CSV header. This will only happen once, as we reuse it.
+        header_size = snprintf(buf + offset, sizeof(buf) - offset,
+            "#ts,t_rpm,t_duty,t_rpc,t_rot,tot,tot_abs,tot_fw,tot_bw,paused,dir,rot,duty,rpm\n");
+        offset += header_size;
+    }
+
+    offset += snprintf(buf + offset, sizeof(buf) - offset,
+        "%ld,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
+        msec,
+        target_rpm,
+        target_duty,
+        target_rotation_per_cycle,
+        target_rotation,
+        total_count,
+        total_count_abs,
+        total_count_fw,
+        total_count_bw,
+        target_pause,
+        direction,
+        motor_calc_rotation_degrees(total_count),
+        last_duty,
+        last_rpm);
+}
+
 // This will run at a frequency of 50 Hz (every 20ms) to control the motor
 void motor_monitor_task(void* params) {
     const TickType_t xPeriod = 20 / portTICK_PERIOD_MS;
@@ -208,6 +252,15 @@ void motor_monitor_task(void* params) {
 
     // Task loop
     for (;;) {
+        // Log the previous cycle before the task delay, so that we can keep
+        // using 'continue', while not introducing jitter into the actual control.
+        if (last_duty != 0 || !target_pause) {
+            _flush_stats(last_rpm_millis);
+        } else {
+            // only flush any existing data on pause
+            _flush_stats(last_rpm_millis, true);
+        }
+
         // Wait for next cycle
         BaseType_t xWasDelayed = xTaskDelayUntil(&xLastWakeTime, xPeriod);
 
@@ -253,10 +306,10 @@ void motor_monitor_task(void* params) {
                 target_rotation += direction * target_rotation_per_cycle;
                 motor_flush_direction();
 
-                Serial.printf("reverse direction=%d rotation=%d target_rotation=%d\n",
-                              direction,
-                              total_rotation,
-                              target_rotation
+                LOGF("reverse direction=%d rotation=%d target_rotation=%d\n",
+                     direction,
+                     total_rotation,
+                     target_rotation
                 );
 
                 // No further handling until next tick
@@ -309,7 +362,7 @@ void motor_init() {
     //
     // Pulse counter
     //
-    Serial.println("Setting up motor pulse counter");
+    LOGF("Setting up motor pulse counter");
 
     pcnt_unit_config(&pcnt_config);
 
@@ -334,7 +387,7 @@ void motor_init() {
     //
     // Motor driver
     //
-    Serial.println("Setting up motor driver");
+    LOGF("Setting up motor driver");
 
     // Set up the PWM channel
     ledcSetup(MOTOR_PWM_CHANNEL, MOTOR_PWN_FREQ, MOTOR_PWN_RES);
