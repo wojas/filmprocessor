@@ -46,12 +46,12 @@ unsigned long lastMsg = 0;
 char msg[MSG_BUFFER_SIZE];
 int value = 0;
 
-void mqtt_callback(char* topic, byte* payload, unsigned int length) {
+void mqtt_callback(const char* topic, const byte* payload, unsigned int length) {
     LOGF("[MQTT] Message topic=%s : %.*s", topic, length, payload);
 
     auto topicString = String(topic);
 
-    if (topic == "letsroll/reboot") {
+    if (topicString == "letsroll/reboot") {
         motor_target_duty(0);
         LOGF("[MQTT] reboot requested");
         lcd.clear();
@@ -62,17 +62,16 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
         return;
     }
 
-    // Below is all topic letsroll/motor/control
-    if (topicString != "letsroll/motor/control") {
+    // Below is all topic letsroll/control
+    if (topicString != "letsroll/control") {
         LOGF("[MQTT] Unhandled topic: %s", topic);
         return;
     }
     if (length < 2) {
         return; // cannot be valid
     }
-    auto s = String(reinterpret_cast<char*>(payload), length);
-    byte command = payload[0];
-    switch (command) {
+    auto s = String(payload, length);
+    switch (byte command = payload[0]) {
     case 'R':
         {
             // Set RPM
@@ -108,27 +107,6 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     }
 }
 
-/*
-void mqtt_reconnect() {
-    Serial.print("Attempting MQTT connection...");
-    // Create a random client ID
-    String clientId = "letsroll-";
-    clientId += String(random(0xffff), HEX);
-    // Attempt to connect
-    if (client.connect(clientId.c_str(), SECRET_MQTT_USER, SECRET_MQTT_PASS)) {
-        Serial.println("connected");
-        // Once connected, publish an announcement...
-        client.publish("letsroll/hello", "hello world");
-        // ... and resubscribe
-        client.subscribe("letsroll/motor/control");
-        client.subscribe("letsroll/reboot");
-    } else {
-        Serial.print("failed, rc=");
-        Serial.print(client.state());
-        Serial.println(" try again later");
-    }
-}
-*/
 
 #define KP_ROW_NUM     4 // four rows
 #define KP_COLUMN_NUM  4 // four columns
@@ -252,11 +230,10 @@ void setup() {
     Logger::beginServer();
     Logger::startTask();
 
-    //client.setServer(SECRET_MQTT_SERVER, 1883);
-    // For incoming messages, including headers. Default: 128
-    //client.setBufferSize(255);
-    // FIXME: new receive code in loop()
-    //client.setCallback(mqtt_callback);
+    // Once connected, publish an announcement...
+    MQTT::publishAsync("letsroll/hello", "hello world");
+    MQTT::subscribe("letsroll/control");
+    MQTT::subscribe("letsroll/reboot");
 
     // https://github.com/espressif/arduino-esp32/blob/master/libraries/ArduinoOTA/examples/BasicOTA/BasicOTA.ino
     ArduinoOTA.setPassword("thaal6aiJievee"); // FIXME: move to header
@@ -452,36 +429,24 @@ void loop() {
 
     ArduinoOTA.handle();
 
-    // FIXME: Cannot block in our app!
-    //if (client.connected()) {
-    //    client.loop();
-    //}
-
     uint32_t now = millis();
-    // TODO: in background task
     if (now - lastMsg > 10000) {
         motor_dump_status();
         lastMsg = now;
-        /*
-        if (!client.connected()) {
-            Serial.println("MQTT connect");
-            mqtt_reconnect();
-            Serial.println("MQTT connect finished");
-        }
-        if (client.connected()) {
-            lastMsg = now;
-            ++value;
-            snprintf(msg, MSG_BUFFER_SIZE, "Motor: %d RPM, %d deg, %d duty",
-                     motor_rpm(), motor_position_degrees(), motor_duty());
-            Serial.print("Publish message: ");
-            Serial.println(msg);
-            client.publish("letsroll/log", msg);
-        }
-        */
     }
 
     digitalWrite(LED, motor_is_reversed() ? LOW : HIGH);
 
+    // MQTT incoming message handling
+    MQTT::RxView msg;
+    if (MQTT::recv(msg, 0)) {
+        // handle one message
+        LOGF("[MQTT] received %s : %.*s", msg.topic, msg.len, reinterpret_cast<const char*>(msg.payload));
+        mqtt_callback(msg.topic, msg.payload, msg.len);
+        MQTT::free(msg);  // IMPORTANT: return the slot to the pool
+    }
+
+    // LCD update
     if (now - last_lcd > 200) {
         //lcd.clear();
         lcd.setCursor(0, 0);
@@ -515,8 +480,6 @@ void loop() {
     char key = keypad.getKey();
     if (key) {
         Serial.printf("Keypad: %c\n", key);
-        //lcd.setCursor(15, 1);
-        //lcd.write(key);
         kp_handle(key);
     }
 
@@ -524,12 +487,10 @@ void loop() {
     if (buttonRoll.getSingleDebouncedPress()) {
         bool is_paused = motor_toggle_paused();
         LOGF("Button: ROLL pressed, paused is now %d", is_paused);
-        //client.publish("letsroll/log", "Button: ROLL pressed"); // unexpected triggers
     }
     if (buttonTime.getSingleDebouncedPress()) {
         reset_timer();
         LOGF("Button: TIME pressed");
-        //client.publish("letsroll/log", "Button: TIME pressed"); // unexpected triggers
     }
 
     //Serial.println("loop done");
