@@ -459,7 +459,7 @@ void loop() {
 
     uint32_t now = millis();
     // TODO: in background task
-    if (now - lastMsg > 2000) {
+    if (now - lastMsg > 10000) {
         motor_dump_status();
         lastMsg = now;
         /*
