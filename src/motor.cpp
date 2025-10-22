@@ -204,20 +204,26 @@ void motor_reverse() {
 }
 
 // Send batched metrics over MQTT
-void _flush_stats(unsigned long msec) {
+void _flush_stats(unsigned long msec, bool flushOnly = false) {
     static char buf[MQTT_PAYLOAD_MAX];
     static size_t offset = 0;
+    static size_t header_size = 0;
 
-    if (sizeof(buf) - offset < 100) {
-        // Flush to MQTT
+    if ( (flushOnly && offset <= header_size) || (sizeof(buf) - offset < 100) ) {
+        // Flush to MQTT (this copies the data)
         MQTT::publishAsync("letsroll/motor/csv", reinterpret_cast<const uint8_t*>(buf), offset);
-        offset = 0;
+        // Keep the header, but overwrite data
+        offset = header_size;
+    }
+    if (flushOnly) {
+        return;
     }
 
     if (offset == 0) {
-        // Write CSV header
-        offset += snprintf(buf + offset, sizeof(buf) - offset,
+        // Write CSV header. This will only happen once, as we reuse it.
+        header_size = snprintf(buf + offset, sizeof(buf) - offset,
             "#ts,t_rpm,t_duty,t_rpc,t_rot,tot,tot_abs,tot_fw,tot_bw,paused,dir,rot,duty,rpm\n");
+        offset += header_size;
     }
 
     offset += snprintf(buf + offset, sizeof(buf) - offset,
@@ -250,6 +256,9 @@ void motor_monitor_task(void* params) {
         // using 'continue', while not introducing jitter into the actual control.
         if (last_duty != 0 || !target_pause) {
             _flush_stats(last_rpm_millis);
+        } else {
+            // only flush any existing data on pause
+            _flush_stats(last_rpm_millis, true);
         }
 
         // Wait for next cycle
