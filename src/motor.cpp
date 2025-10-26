@@ -153,6 +153,7 @@ volatile State state = State::Idle;
 volatile uint32_t state_change_millis = 0; // last state change
 volatile int state_change_rpm = 0; // rpm at state change
 volatile int state_change_duty = 0; // duty at state change
+volatile int state_ticks = 0; // number of iterations in the current state
 
 const char* state_name(State st) {
     switch (st) {
@@ -308,6 +309,7 @@ void _transition(const State newState) {
     state_change_millis = now;
     state_change_rpm = last_rpm;
     state_change_duty = last_duty;
+    state_ticks = 0;
 }
 
 void _apply_duty(int duty) {
@@ -381,6 +383,7 @@ void motor_monitor_task(void* params) {
         // Precalculate some things we need below
         const bool want_running = !target_pause && (target_rpm > 0 || target_duty > 0);
         const uint32_t state_age = now - state_change_millis;
+        state_ticks++;
 
         // Feedforward estimate of required duty for the desired target_rpm
         int duty_ff = MOTOR_DUTY_FF_EXPR;
@@ -444,13 +447,28 @@ void motor_monitor_task(void* params) {
             // TODO: Only start updating the estimate after a certain period, once stabilized,
             //       or maybe only just before we transition to RampDown.
             {
+                // Positive if in the desired direction
+                int rpm = direction * last_rpm;  // should be positive now
+
+                // Filter to avoid jitter
+                // Directly using this had the disadvantage of delaying response, which
+                // in itself caused large swings, so now we only use it for changes over
+                // longer periods.
+                static float rpm_filtered = 0;
+                // α ≈ 0.39 → τ ≈ 40 ms
+                // α ≈ 0.26 → τ ≈ 75 ms
+                // α ≈ 0.18 → τ ≈ 100 ms
+                constexpr float alpha = 0.15f; // 0.0–1.0, lower = smoother
+                if (rpm_filtered == 0 || state_ticks <= 1) {
+                    rpm_filtered = rpm;
+                }
+                rpm_filtered = alpha * rpm + (1 - alpha) * rpm_filtered;
+
+                // Check if it was paused or equivalent
                 if (!want_running) {
                     _transition(State::RampDown);
                     continue;
                 }
-
-                // Positive if in the desired direction
-                int rpm = direction * last_rpm;  // should be positive now
 
                 // Check if we hit our target rotation already
                 if (target_rotation_per_cycle > 0) {
@@ -461,7 +479,7 @@ void motor_monitor_task(void* params) {
                         target_rotation += (-direction) * target_rotation_per_cycle;
                         target_direction *= -1;
 
-                        LOGF("reverse next target_direction=%d rotation=%d target_rotation=%d\n",
+                        LOGF("reverse next target_direction=%d rotation=%d target_rotation=%d",
                              target_direction,
                              total_rotation,
                              target_rotation
@@ -489,9 +507,25 @@ void motor_monitor_task(void* params) {
                 }
 
                 // Adjust motor duty to match RPM
-                // FIXME: Check if indeed positive
                 if (rpm != target_rpm) {
                     int diff = target_rpm - rpm; // positive if not fast enough
+                    int diff_filtered = target_rpm - rpm_filtered;
+
+                    // Small smoother adjustments when we are near our target
+                    if (target_rpm > 20) {
+                        if (abs(diff) <= 2 && abs(diff_filtered) <= 1.5) {
+                            if (state_ticks % 10 == 0) {
+                                // Only once every 10 ticks (200ms)
+                                diff = diff_filtered;
+                            } else {
+                                // Leave it as is.
+                                diff = 0;;
+                            }
+                        } else if (abs(diff) <= 4 && abs(diff_filtered) <= 1.5) {
+                            // Assume transient, ignore
+                            diff = 0;
+                        }
+                    }
 
                     //int adjust = diff; // only way now to get a precision of 1
                     static int i_accum = 0;
@@ -565,7 +599,7 @@ void motor_monitor_task(void* params) {
             //}
 
             // TODO: Pull EN* HIGH once wired
-            if (last_rpm < 3 || state_age >= MOTOR_COAST_MSEC) {
+            if (last_rpm < 5 || state_age >= MOTOR_COAST_MSEC) {
                 direction = target_direction;
                 motor_flush_direction();
 
