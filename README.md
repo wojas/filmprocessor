@@ -1,5 +1,16 @@
 This repository hosts the ESP32 controller code for my build of a 3D printed Jobo cog wheel compatible rotary film processor.
 
+Features:
+
+- Motor control loop that reads the encoder to keep RPM constant at target value, with proper control dampening and smooth reversals.
+- Reversal based on measurement of rotation degrees, instead of fixed time.
+- LCD display shows RPM, duty, elapsed time, and more.
+- Keypad input allows picking presets and specific RPM/duty/rotation targets.
+- Count-up timer that can be reset. The previous elapsed time is also shown.
+- MQTT support for logging over wifi, including detailed motor metrics, with Python scripts to analyze these.
+- OTA updates and remote monitor socket support.
+- 3D printable case design available.
+
 ![The controller in its enclosure](doc/images/controller-enclosure.jpeg)
 
 My build is strongly based on this 3D model by Franktion, which does not include the controller part:
