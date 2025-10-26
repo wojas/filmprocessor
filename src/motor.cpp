@@ -26,22 +26,38 @@ extern "C" {
 #define MOTOR_PWM_CHANNEL 0
 // Set PWM frequency (e.g., 25000 Hz)
 // MAX14870 recommended max is 50kHz
-#define MOTOR_PWN_FREQ 50000
+#define MOTOR_PWM_FREQ 50000
 // Set PWM resolution (e.g., 8 bits for a 0-255 range)
 // Max Frequency = 80 MHz / 2^resolution
 // For 10 bits, the max frequency is 78kHz
 // 8 bits should allow us to control the RPM with <1% accuracy.
-#define MOTOR_PWN_RES 8
+#define MOTOR_PWM_RES 8
 
-// Maximum duty adjustment per tick.
-// With 70 it effectively requires 3 ticks (60ms) to ramp up to 50 RPM (~200 duty).
-#define MOTOR_ADJUST_LIMIT 40
-#define MOTOR_DUTY_MAX 255
+// Maximum duty adjustment per tick when running (after ramp up).
+#define MOTOR_ADJUST_LIMIT 20
+// FIXME: Pick a sensible number here, using 250 to distinguish from 255 for now
+#define MOTOR_DUTY_MAX 250
 // Found that the motor does not move with lower values
 // Duty 0 is still allowed to stop the motor
 // TODO: Not sure if this is useful in any way. May prevent adjustments from
 //       working correctly in lower ranges.
-#define MOTOR_DUTY_MIN 0
+#define MOTOR_DUTY_MIN 18
+
+// How often we monitor and adjust the motor. 50 Hz -> 20 ms
+#define MOTOR_MONITOR_INTERVAL_MSEC 20
+
+// Time to coast on direction reversal, after ramp down to near zero.
+// This is easier on the motor and allows fluids to settle a bit.
+#define MOTOR_COAST_MSEC 100
+
+// Planned normal ramp down interval
+#define MOTOR_RAMP_DOWN_MSEC 100
+
+// Maximum time we will in ramp down before we force a switch to coast
+#define MOTOR_RAMP_DOWN_MAX_MSEC 200
+
+#define MOTOR_RAMP_UP_MSEC 100
+#define MOTOR_RAMP_UP_MAX_MSEC 140
 
 #define MOTOR_PCNT_UNIT PCNT_UNIT_0
 #define MOTOR_PCNT_CHANNEL PCNT_CHANNEL_0
@@ -97,11 +113,14 @@ int motor_calc_rotation_degrees(int count) {
 }
 
 volatile int direction = 1; // 1 is forward, -1 is backward
+volatile int target_direction = 1; // 1 is forward, -1 is backward
 
 volatile int32_t total_count = 0;
 volatile uint32_t total_count_abs = 0;
 volatile uint32_t total_count_fw = 0;
 volatile uint32_t total_count_bw = 0;
+
+volatile int task_not_delayed_count = 0;
 
 volatile int target_duty = 0;
 volatile int target_rpm = 0;
@@ -113,13 +132,45 @@ volatile int last_rpm = 0;
 volatile uint32_t last_rpm_millis = 0;
 volatile int last_duty = 0;
 
+// States in typical chronological order.
+// Allowed transitions:
+// - Idle -> RampUp
+// - RampUp -> Running | RampDown
+// - Running -> RampDown
+// - RampDown -> Coast
+// - Coast -> Idle | RampUp
+// TODO: Do we need a Fault state we can always transition to immediately?
+enum class State {Idle, RampUp, Running, RampDown, Coast};
+volatile State state = State::Idle;
+volatile uint32_t state_change_millis = 0; // last state change
+volatile int state_change_rpm = 0; // rpm at state change
+volatile int state_change_duty = 0; // duty at state change
+
+const char* state_name(State st) {
+    switch (st) {
+    case State::Idle:
+        return "idle";
+    case State::RampUp:
+        return "up";
+    case State::Running:
+        return "run";
+    case State::RampDown:
+        return "down";
+    case State::Coast:
+        return "coast";
+    default:
+        return ""; // should never happen
+    }
+}
 
 void motor_dump_status() {
-    LOGF("motor_dump_status: direction=%d last=D:%d/RPM:%d "
-         "total_count=%d/%d/%d/%d target=D:%d/RPM:%d/RPC:%d/ROT:%d rotation=%d",
+    LOGF("motor_dump_status: %s direction=%d last=D:%d/RPM:%d "
+         "total_count=%d/%d/%d/%d target=D:%d/RPM:%d/RPC:%d/ROT:%d/DIR:%d rotation=%d",
+         state_name(state),
          direction, last_duty, last_rpm,
          total_count, total_count_abs, total_count_fw, total_count_bw,
          target_duty, target_rpm, target_rotation_per_cycle, target_rotation,
+         target_direction,
          motor_calc_rotation_degrees(total_count)
     );
 }
@@ -157,7 +208,8 @@ bool motor_toggle_paused() {
 // Relative to whatever starting position the motor had on startup.
 unsigned int motor_position_degrees() {
     auto rot = motor_calc_rotation_degrees(total_count);
-    return static_cast<uint32_t>(rot) % 360;
+    int m = ((rot % 360) + 360) % 360; // avoid weird wrap for negative
+    return static_cast<unsigned int>(m);
 }
 
 // Set a fixed PWM duty cycle.
@@ -195,21 +247,13 @@ void motor_flush_direction() {
     digitalWrite(MOTOR_DIR_GPIO, direction > 0 ? LOW : HIGH);
 }
 
-// FIXME: no direct control by app
-void motor_reverse() {
-    ledcWrite(MOTOR_PWM_CHANNEL, 0);
-    last_duty = 0;
-    direction *= -1;
-    motor_flush_direction();
-}
-
 // Send batched metrics over MQTT
 void _flush_stats(unsigned long msec, bool flushOnly = false) {
     static char buf[MQTT_PAYLOAD_MAX];
     static size_t offset = 0;
     static size_t header_size = 0;
 
-    if ( (flushOnly && offset <= header_size) || (sizeof(buf) - offset < 100) ) {
+    if ( (flushOnly && offset <= header_size) || (sizeof(buf) - offset < 120) ) {
         // Flush to MQTT (this copies the data)
         MQTT::publishAsync("letsroll/motor/csv", reinterpret_cast<const uint8_t*>(buf), offset);
         // Keep the header, but overwrite data
@@ -222,31 +266,70 @@ void _flush_stats(unsigned long msec, bool flushOnly = false) {
     if (offset == 0) {
         // Write CSV header. This will only happen once, as we reuse it.
         header_size = snprintf(buf + offset, sizeof(buf) - offset,
-            "#ts,t_rpm,t_duty,t_rpc,t_rot,tot,tot_abs,tot_fw,tot_bw,paused,dir,rot,duty,rpm\n");
+            "#ts,t_rpm,t_duty,t_rpc,t_rot,t_dir,tot,tot_abs,tot_fw,tot_bw,paused,state,dir,rot,duty,rpm\n");
         offset += header_size;
     }
 
     offset += snprintf(buf + offset, sizeof(buf) - offset,
-        "%ld,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
+        "%lu,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%d,%d,%d,%d\n",
         msec,
         target_rpm,
         target_duty,
         target_rotation_per_cycle,
         target_rotation,
+        target_direction,
         total_count,
         total_count_abs,
         total_count_fw,
         total_count_bw,
         target_pause,
+        state_name(state),
         direction,
         motor_calc_rotation_degrees(total_count),
         last_duty,
         last_rpm);
 }
 
+void _transition(const State newState) {
+    const uint32_t now = millis();
+    LOGF("[motor] transition: %s -> %s after %d ms",
+         state_name(state),
+         state_name(newState),
+         now - state_change_millis);
+    state = newState;
+    state_change_millis = now;
+    state_change_rpm = last_rpm;
+    state_change_duty = last_duty;
+}
+
+void _apply_duty(int duty) {
+    if (duty < 0) duty = 0;
+    if (duty > 255) duty = 255;
+    last_duty = duty;
+    ledcWrite(MOTOR_PWM_CHANNEL, duty);
+}
+
+// Remember previous duty levels by direction and rpm for use as future estimate
+// to basically learn the right value for the current load within a cycle.
+int _prev_duty[2], _prev_rpm[2];
+void _set_previous(const int rpm, const int dir, const int duty) {
+    if (duty == 0 || rpm == 0 || dir == 0) return;
+    const int idx = dir > 0 ? 1 : 0;
+    _prev_rpm[idx] = rpm;
+    _prev_duty[idx] = duty;
+}
+int _get_previous(const int rpm, const int dir) {
+    if (rpm == 0 || dir == 0) return 0;
+    const int idx = dir > 0 ? 1 : 0;
+    if (rpm != _prev_rpm[idx]) {
+        return 0;
+    }
+    return _prev_duty[idx];
+}
+
 // This will run at a frequency of 50 Hz (every 20ms) to control the motor
 void motor_monitor_task(void* params) {
-    const TickType_t xPeriod = 20 / portTICK_PERIOD_MS;
+    const TickType_t xPeriod = MOTOR_MONITOR_INTERVAL_MSEC / portTICK_PERIOD_MS;
     TickType_t xLastWakeTime = xTaskGetTickCount();
     last_rpm_millis = millis();
 
@@ -254,7 +337,7 @@ void motor_monitor_task(void* params) {
     for (;;) {
         // Log the previous cycle before the task delay, so that we can keep
         // using 'continue', while not introducing jitter into the actual control.
-        if (last_duty != 0 || !target_pause) {
+        if (state != State::Idle || last_duty != 0 || !target_pause) {
             _flush_stats(last_rpm_millis);
         } else {
             // only flush any existing data on pause
@@ -263,6 +346,9 @@ void motor_monitor_task(void* params) {
 
         // Wait for next cycle
         BaseType_t xWasDelayed = xTaskDelayUntil(&xLastWakeTime, xPeriod);
+        if (xWasDelayed == pdFALSE) {
+            task_not_delayed_count++;
+        }
 
         // Get and reset count
         int16_t count = 0;
@@ -284,76 +370,197 @@ void motor_monitor_task(void* params) {
             last_rpm = motor_calc_rpm(count, dt);
         }
 
-        // If we are paused, do nothing
-        if (target_pause) {
-            ledcWrite(MOTOR_PWM_CHANNEL, 0);
-            last_duty = 0;
-            continue;
+        // Precalculate some things we need below
+        const bool want_running = !target_pause && (target_rpm > 0 || target_duty > 0);
+        const uint32_t state_age = now - state_change_millis;
+
+        // Feedforward estimate of required duty for the desired target_rpm
+        int duty_ff = 200; // FIXME: calculate from linear fit
+        // Override with previous steady state observation at this RPM
+        // FIXME: distinguish between desired direction and actual direction
+        int duty_estimate = _get_previous(target_rpm, direction);
+        if (duty_estimate == 0) {
+            duty_estimate = duty_ff;
+        }
+        if (target_duty > 0) {
+            duty_estimate = target_duty;
         }
 
-        // Check if we hit our target rotation already
-        if (target_rotation_per_cycle > 0) {
-            int32_t total_rotation = motor_calc_rotation_degrees(total_count);
-            // The direction matters here. Here it ensures we compare in the right direction.
-            if ((direction * total_rotation) >= (direction * target_rotation)) {
-                // Halt the motor and set last_duty to 0 for ramp up in future ticks
-                // TODO: This needs better slow down handling.
-                ledcWrite(MOTOR_PWM_CHANNEL, 0);
-                last_duty = 0;
+        switch (state) {
+        case State::Idle:
+            // Motor is paused and not turning
+            _apply_duty(0);
+            if (want_running) {
+                _transition(State::RampUp);
+            }
+            break;
 
-                // Reverse and determine next target rotation
-                direction *= -1;
-                target_rotation += direction * target_rotation_per_cycle;
+        case State::RampUp:
+            // Ramp up from stationary to desired running speed using a duty estimate.
+            // Any target_rpm matching is only done in Running, but we transition when
+            // we get close to or over the target_rpm.
+            // TODO: Set the desired direction here before duty, in case of flip.
+            {
+                if (target_direction != direction) {
+                    direction = target_direction;
+                    motor_flush_direction();
+                }
+                if (!want_running) {
+                    _transition(State::RampDown);
+                    continue;
+                }
+                if (state_age >= MOTOR_RAMP_UP_MAX_MSEC) {
+                    _transition(State::Running);
+                    continue;
+                }
+                // Transition to Running when we reach 90% of target_rpm
+                if (target_rpm > 0 && last_rpm >= target_rpm*9/10) {
+                    _transition(State::Running);
+                    continue;
+                }
+                // Use duty_estimate as the initial target
+                constexpr int n_ticks = MOTOR_RAMP_UP_MSEC / MOTOR_MONITOR_INTERVAL_MSEC;
+                constexpr int adjust = 255 / n_ticks;
+                int duty = last_duty + adjust;
+                if (duty > duty_estimate) {
+                    duty = duty_estimate;
+                }
+                _apply_duty(duty);
+            }
+            break;
+
+        case State::Running:
+            // Steady state running, until we need to RampDown
+            // TODO: Switch from feedforward target to actual target
+            // TODO: Restore previous duty in this direction for this target_rpm, if available
+            // TODO: Limit allowed duty overshoot in first period of say ~300ms.
+            // TODO: Only start updating the estimate after a certain period, once stabilized,
+            //       or maybe only just before we transition to RampDown.
+            {
+                if (!want_running) {
+                    _transition(State::RampDown);
+                    continue;
+                }
+
+                // Positive if in the desired direction
+                int rpm = direction * last_rpm;  // should be positive now
+
+                // Check if we hit our target rotation already
+                if (target_rotation_per_cycle > 0) {
+                    int32_t total_rotation = motor_calc_rotation_degrees(total_count);
+                    // The direction matters here. Here it ensures we compare in the right direction.
+                    if ((direction * total_rotation) >= (direction * target_rotation)) {
+                        // Reverse and determine the next target rotation
+                        target_rotation += (-direction) * target_rotation_per_cycle;
+                        target_direction *= -1;
+
+                        LOGF("reverse next target_direction=%d rotation=%d target_rotation=%d\n",
+                             target_direction,
+                             total_rotation,
+                             target_rotation
+                        );
+
+                        // Remember the current duty level for the next cycle
+                        if (abs(target_rpm - last_rpm) <= 2) {
+                            _set_previous(target_rpm, direction, last_duty);
+                        }
+
+                        // Start slowing down in this cycle
+                        if (last_duty > 2*MOTOR_ADJUST_LIMIT) {
+                            _apply_duty(max(0, last_duty - MOTOR_ADJUST_LIMIT));
+                        }
+
+                        _transition(State::RampDown);
+                        continue;
+                    }
+                }
+
+                // In case of a fixed target_duty, just set that
+                if (target_duty > 0) {
+                    _apply_duty(target_duty);
+                    continue;
+                }
+
+                // Adjust motor duty to match RPM
+                // FIXME: Check if indeed positive
+                if (rpm != target_rpm) {
+                    int diff = target_rpm - rpm; // positive if not fast enough
+                    int adjust = diff; // only way now to get a precision of 1
+
+                    // Limit adjustment per tick (20ms)
+                    if (adjust > MOTOR_ADJUST_LIMIT) {
+                        adjust = MOTOR_ADJUST_LIMIT;
+                    }
+                    if (adjust < -MOTOR_ADJUST_LIMIT) {
+                        adjust = -MOTOR_ADJUST_LIMIT;
+                    }
+
+                    // Ensure the new duty is within the allowed range
+                    // TODO: Limit within the first few hundreds of milliseconds
+                    int duty = last_duty + adjust;
+                    if (duty > MOTOR_DUTY_MAX) {
+                        duty = MOTOR_DUTY_MAX;
+                    }
+                    if (duty > 0 && duty < MOTOR_DUTY_MIN) {
+                        duty = MOTOR_DUTY_MIN;
+                    }
+
+                    // Set new duty level
+                    _apply_duty(duty);
+                }
+            }
+            break;
+
+        case State::RampDown:
+            // Ramping down from a previous unknown duty to 0
+            // FIXME: not needed, because we do not measure the actual rpm?
+            {
+                if (state_age >= MOTOR_RAMP_DOWN_MAX_MSEC) {
+                    _transition(State::Coast);
+                    continue;
+                }
+                // Assume the starting duty was the max of 255, and this is for
+                // the worst case. If we were at a lower load, this stage will be done sooner.
+
+                constexpr int n_ticks = MOTOR_RAMP_DOWN_MSEC / MOTOR_MONITOR_INTERVAL_MSEC;
+                constexpr int adjust = 255 / n_ticks;
+                int duty = last_duty - adjust;
+                if (duty <= 0) {
+                    duty = 0;
+                    _transition(State::Coast);
+                }
+                _apply_duty(duty);
+            }
+            break;
+
+        case State::Coast:
+            // Coasting phase around direction reversal, between RampDown and RampUp.
+            // The motor may still be spinning in the wrong direction at the start of
+            // this stage, it needs to bleed of that kinetic energy. We do not want
+            // to immediately slam the gears into the other direction.
+            // TODO: transition when the actual RPM is low enough, say under 5, if sooner.
+            _apply_duty(0);
+
+            // Currently we always set it before transitioning
+            //if (last_rpm < 3 && target_direction != direction) {
+            //    direction = target_direction;
+            //    motor_flush_direction();
+            //}
+
+            // TODO: Pull EN* HIGH once wired
+            if (state_age >= MOTOR_COAST_MSEC) {
+                direction = target_direction;
                 motor_flush_direction();
 
-                LOGF("reverse direction=%d rotation=%d target_rotation=%d\n",
-                     direction,
-                     total_rotation,
-                     target_rotation
-                );
-
-                // No further handling until next tick
-                continue;
+                if (!want_running) {
+                    _transition(State::Idle);
+                } else {
+                    _transition(State::RampUp);
+                }
             }
+            break;
         }
 
-        // If we have a target duty instead of rpm, or they are 0
-        if (target_duty > 0 || target_rpm == 0) {
-            ledcWrite(MOTOR_PWM_CHANNEL, target_duty);
-            last_duty = target_duty;
-            continue;
-        }
-
-        // Adjust motor load to match RPM
-        // Here rpm is negative if the rpm is in the wrong direction for smoother reversal.
-        // In that case the duty will end up 0 until sufficiently reduced.
-        int rpm = direction * last_rpm;
-        if (rpm != target_rpm) {
-            int diff = target_rpm - rpm; // positive if not fast enough
-            int adjust = diff; // only way now to get a precision of 1
-
-            // Limit adjustment per tick (20ms)
-            // This results in full ramp up no faster than 100ms, which seems reasonable.
-            if (adjust > MOTOR_ADJUST_LIMIT) {
-                adjust = MOTOR_ADJUST_LIMIT;
-            }
-            if (adjust < -MOTOR_ADJUST_LIMIT) {
-                adjust = -MOTOR_ADJUST_LIMIT;
-            }
-
-            // Ensure the new duty is within the allowed range
-            int duty = last_duty + adjust;
-            if (duty > MOTOR_DUTY_MAX) {
-                duty = MOTOR_DUTY_MAX;
-            }
-            if (duty > 0 && duty < MOTOR_DUTY_MIN) {
-                duty = MOTOR_DUTY_MIN;
-            }
-
-            // Set new duty level
-            ledcWrite(MOTOR_PWM_CHANNEL, duty);
-            last_duty = duty;
-        }
     } // monitor forever loop
 }
 
@@ -390,7 +597,7 @@ void motor_init() {
     LOGF("Setting up motor driver");
 
     // Set up the PWM channel
-    ledcSetup(MOTOR_PWM_CHANNEL, MOTOR_PWN_FREQ, MOTOR_PWN_RES);
+    ledcSetup(MOTOR_PWM_CHANNEL, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
     // Attach the PWM channel to the GPIO pin
     ledcAttachPin(MOTOR_PWM_GPIO, MOTOR_PWM_CHANNEL);
     // Set the initial duty cycle to 0 (motor off)
@@ -407,7 +614,7 @@ void motor_init() {
     TaskHandle_t xHandle = nullptr;
     xTaskCreate(motor_monitor_task,
                 "motor_monitor",
-                2048,
+                4096,
                 nullptr,
                 tskIDLE_PRIORITY + 2,
                 &xHandle);
