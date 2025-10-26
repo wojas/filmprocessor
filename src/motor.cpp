@@ -43,6 +43,14 @@ extern "C" {
 //       working correctly in lower ranges.
 #define MOTOR_DUTY_MIN 18
 
+// Feedforward estimate of required duty for the desired target_rpm
+// FIXME: calculate from linear fit on actual data
+#define MOTOR_DUTY_FF_EXPR (20 + 3 * target_rpm)
+
+#define MOTOR_I_MAX 30
+#define MOTOR_KP 1
+#define MOTOR_KI 0
+
 // How often we monitor and adjust the motor. 50 Hz -> 20 ms
 #define MOTOR_MONITOR_INTERVAL_MSEC 20
 
@@ -375,10 +383,9 @@ void motor_monitor_task(void* params) {
         const uint32_t state_age = now - state_change_millis;
 
         // Feedforward estimate of required duty for the desired target_rpm
-        int duty_ff = 200; // FIXME: calculate from linear fit
+        int duty_ff = MOTOR_DUTY_FF_EXPR;
         // Override with previous steady state observation at this RPM
-        // FIXME: distinguish between desired direction and actual direction
-        int duty_estimate = _get_previous(target_rpm, direction);
+        int duty_estimate = _get_previous(target_rpm, target_direction);
         if (duty_estimate == 0) {
             duty_estimate = duty_ff;
         }
@@ -461,7 +468,7 @@ void motor_monitor_task(void* params) {
                         );
 
                         // Remember the current duty level for the next cycle
-                        if (abs(target_rpm - last_rpm) <= 2) {
+                        if (abs(target_rpm - rpm) <= 2) {
                             _set_previous(target_rpm, direction, last_duty);
                         }
 
@@ -485,7 +492,11 @@ void motor_monitor_task(void* params) {
                 // FIXME: Check if indeed positive
                 if (rpm != target_rpm) {
                     int diff = target_rpm - rpm; // positive if not fast enough
-                    int adjust = diff; // only way now to get a precision of 1
+
+                    //int adjust = diff; // only way now to get a precision of 1
+                    static int i_accum = 0;
+                    i_accum = std::clamp(i_accum + diff, -MOTOR_I_MAX, MOTOR_I_MAX);
+                    int adjust = MOTOR_KP * diff + MOTOR_KI * i_accum;
 
                     // Limit adjustment per tick (20ms)
                     if (adjust > MOTOR_ADJUST_LIMIT) {
@@ -496,10 +507,14 @@ void motor_monitor_task(void* params) {
                     }
 
                     // Ensure the new duty is within the allowed range
-                    // TODO: Limit within the first few hundreds of milliseconds
+                    int max_duty = MOTOR_DUTY_MAX;
+                    // First 300ms do not go past the estimate to prevent overshoot
+                    if (state_age < 300) {
+                        max_duty = duty_estimate;
+                    }
                     int duty = last_duty + adjust;
-                    if (duty > MOTOR_DUTY_MAX) {
-                        duty = MOTOR_DUTY_MAX;
+                    if (duty > max_duty) {
+                        duty = max_duty;
                     }
                     if (duty > 0 && duty < MOTOR_DUTY_MIN) {
                         duty = MOTOR_DUTY_MIN;
@@ -527,9 +542,11 @@ void motor_monitor_task(void* params) {
                 int duty = last_duty - adjust;
                 if (duty <= 0) {
                     duty = 0;
-                    _transition(State::Coast);
                 }
                 _apply_duty(duty);
+                if (duty <= 0) {
+                    _transition(State::Coast);
+                }
             }
             break;
 
@@ -548,7 +565,7 @@ void motor_monitor_task(void* params) {
             //}
 
             // TODO: Pull EN* HIGH once wired
-            if (state_age >= MOTOR_COAST_MSEC) {
+            if (last_rpm < 3 || state_age >= MOTOR_COAST_MSEC) {
                 direction = target_direction;
                 motor_flush_direction();
 
