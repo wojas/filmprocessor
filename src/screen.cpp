@@ -12,13 +12,16 @@ static uint8_t progress_char_base[16] = {
 Screen::Screen()
     : lcd(PCF8574_ADDR_A21_A11_A01, 4, 5, 6, 16, 11, 12, 13, 14, POSITIVE),
       screen(ID::A),
-      customCharsLoaded(false) {
+      customCharsLoaded(false),
+      initialized(false) {
     lineBuffer[0].reserve(16);
     lineBuffer[1].reserve(16);
 }
 
 bool Screen::begin() {
-    if (lcd.begin(16, 2, LCD_5x8DOTS) != 1) {
+    customCharsLoaded = false;
+    initialized = (lcd.begin(16, 2, LCD_5x8DOTS) == 1);
+    if (!initialized) {
         return false;
     }
     lcd.clear();
@@ -31,10 +34,16 @@ void Screen::setScreen(ID id) {
         return;
     }
     screen = id;
+    if (!initialized) {
+        return;
+    }
     lcd.clear();
 }
 
 void Screen::render() {
+    if (!initialized) {
+        return;
+    }
     ensureCustomChars();
     prepareBuffers();
     switch (screen) {
@@ -188,7 +197,7 @@ char Screen::progressChar(int idx) const {
 }
 
 void Screen::ensureCustomChars() {
-    if (customCharsLoaded) {
+    if (!initialized || customCharsLoaded) {
         return;
     }
     for (int i = 0; i < 8; i++) {

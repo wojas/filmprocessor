@@ -59,5 +59,6 @@ private:
     LiquidCrystal_I2C lcd;
     ID screen;
     bool customCharsLoaded;
+    bool initialized;
     String lineBuffer[2];
 };
