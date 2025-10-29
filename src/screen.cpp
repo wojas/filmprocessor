@@ -11,8 +11,10 @@ static uint8_t progress_char_base[16] = {
 
 Screen::Screen()
     : lcd(PCF8574_ADDR_A21_A11_A01, 4, 5, 6, 16, 11, 12, 13, 14, POSITIVE),
-      screen(Id::A),
+      screen(ID::A),
       customCharsLoaded(false) {
+    lineBuffer[0].reserve(16);
+    lineBuffer[1].reserve(16);
 }
 
 bool Screen::begin() {
@@ -24,7 +26,7 @@ bool Screen::begin() {
     return true;
 }
 
-void Screen::setScreen(Id id) {
+void Screen::setScreen(ID id) {
     if (screen == id) {
         return;
     }
@@ -34,44 +36,56 @@ void Screen::setScreen(Id id) {
 
 void Screen::render() {
     ensureCustomChars();
+    prepareBuffers();
     switch (screen) {
-    case Id::A:
+    case ID::A:
         renderScreenA();
         break;
-    case Id::B:
+    case ID::B:
         renderScreenB();
         break;
-    case Id::C:
+    case ID::C:
         renderScreenC();
         break;
-    case Id::D:
+    case ID::D:
         renderScreenD();
         break;
+    case ID::Boot:
+        renderScreenBoot();
+        break;
+    case ID::OTA:
+        renderScreenOTA();
+        break;
     }
+    flushLines();
 }
 
 void Screen::renderScreenA() {
-    clearRow(0);
-    lcd.setCursor(0, 0);
-    char dutyChar = duty / 32 + 1;
-    if (duty == 0) {
-        dutyChar = 0;
-    }
+    char baseLine[16];
     if (paused && rpm == 0 && duty == 0) {
-        lcd.printf("[P]/%2d D%3d%c", targetRpm, duty, dutyChar);
+        snprintf(baseLine, sizeof(baseLine), "[P]/%2d D%3d ", targetRpm, duty);
     } else {
-        lcd.printf("%3d/%2d D%3d%c", rpm, targetRpm, duty, dutyChar);
+        snprintf(baseLine, sizeof(baseLine), "%3d/%2d D%3d ", rpm, targetRpm, duty);
     }
-    lcd.setCursor(15, 0);
+    writeText(0, 0, String(baseLine));
+    int dutyGauge = duty == 0 ? 0 : (duty / 32 + 1);
+    if (dutyGauge > 8) {
+        dutyGauge = 8;
+    }
+    if (dutyGauge > 0) {
+        writeChar(0, 14, progressChar(dutyGauge));
+    }
     int progress = progressDegrees / 40;
-    lcd.write(progressChar(progress));
+    if (progress > 8) {
+        progress = 8;
+    }
+    if (progress > 0) {
+        writeChar(0, 15, progressChar(progress));
+    }
 
-    clearRow(1);
-    lcd.setCursor(0, 1);
-    printTime(elapsedSeconds);
+    writeText(1, 0, formatTime(elapsedSeconds));
     if (previousCycleSeconds > 0) {
-        lcd.setCursor(6, 1);
-        printTime(previousCycleSeconds);
+        writeText(1, 6, formatTime(previousCycleSeconds));
     }
     if (!keypadBuffer.isEmpty()) {
         String buf = keypadBuffer;
@@ -82,50 +96,91 @@ void Screen::renderScreenA() {
         if (col < 8) {
             col = 8;
         }
-        lcd.setCursor(col, 1);
-        lcd.print(buf);
+        writeText(1, col, buf);
     }
 }
 
 void Screen::renderScreenB() {
-    writeRow(0, statusLine);
-    writeRow(1, infoLine);
+    // Reserved for future implementation
 }
 
 void Screen::renderScreenC() {
-    writeRow(0, otaHeadline);
-    clearRow(1);
-    lcd.printHorizontalGraph('*', 1, otaPercent, 100);
+    // Reserved for future implementation
 }
 
 void Screen::renderScreenD() {
-    writeRow(0, alertTitle);
-    writeRow(1, alertDetail);
+    // Reserved for future implementation
 }
 
-void Screen::clearRow(int row) {
-    lcd.setCursor(0, row);
-    lcd.print(F("                "));
-    lcd.setCursor(0, row);
+void Screen::renderScreenBoot() {
+    writeText(0, 0, bootStatus);
+    writeText(1, 0, bootInfo);
 }
 
-void Screen::writeRow(int row, const String& text) {
-    clearRow(row);
-    String trimmed = text;
-    if (trimmed.length() > 16) {
-        trimmed = trimmed.substring(0, 16);
+void Screen::renderScreenOTA() {
+    writeText(0, 0, otaHeadline);
+    uint16_t capped = otaPercent > 100 ? 100 : otaPercent;
+    uint32_t units = static_cast<uint32_t>(capped) * 16 * 8 / 100;
+    for (int col = 0; col < 16; ++col) {
+        int level = static_cast<int>(units) - col * 8;
+        if (level <= 0) {
+            continue;
+        }
+        if (level >= 8) {
+            writeChar(1, col, progressChar(8));
+        } else {
+            writeChar(1, col, progressChar(level));
+        }
     }
-    lcd.print(trimmed);
 }
 
-void Screen::printTime(uint32_t seconds) {
+void Screen::prepareBuffers() {
+    lineBuffer[0] = F("                ");
+    lineBuffer[1] = F("                ");
+}
+
+void Screen::flushLine(int row) {
+    lcd.setCursor(0, row);
+    lcd.print(lineBuffer[row]);
+}
+
+void Screen::flushLines() {
+    flushLine(0);
+    flushLine(1);
+}
+
+void Screen::writeText(int row, int col, const String& text) {
+    int len = text.length();
+    for (int i = 0; i < len; ++i) {
+        int idx = col + i;
+        if (idx < 0 || idx >= 16) {
+            break;
+        }
+        if (idx >= static_cast<int>(lineBuffer[row].length())) {
+            break;
+        }
+        lineBuffer[row].setCharAt(idx, text[i]);
+    }
+}
+
+void Screen::writeChar(int row, int col, char value) {
+    if (col < 0 || col >= 16) {
+        return;
+    }
+    if (col >= static_cast<int>(lineBuffer[row].length())) {
+        return;
+    }
+    lineBuffer[row].setCharAt(col, value);
+}
+
+String Screen::formatTime(uint32_t seconds) const {
     uint32_t minutes = seconds / 60;
     uint32_t remainder = seconds % 60;
     char buffer[6];
     snprintf(buffer, sizeof(buffer), "%2lu:%02lu",
         static_cast<unsigned long>(minutes),
         static_cast<unsigned long>(remainder));
-    lcd.print(buffer);
+    return String(buffer);
 }
 
 char Screen::progressChar(int idx) const {

@@ -5,18 +5,20 @@
 
 class Screen {
 public:
-    enum class Id {
+    enum class ID {
         A,
         B,
         C,
         D,
+        Boot,
+        OTA,
     };
 
     Screen();
 
     bool begin();
-    void setScreen(Id id);
-    Id currentScreen() const { return screen; }
+    void setScreen(ID id);
+    ID currentScreen() const { return screen; }
     void render();
 
     // Screen A data
@@ -29,31 +31,33 @@ public:
     uint32_t previousCycleSeconds = 0;
     String keypadBuffer;
 
-    // Screen B data
-    String statusLine;
-    String infoLine;
+    // Screen Boot data
+    String bootStatus;
+    String bootInfo;
 
-    // Screen C data
+    // Screen OTA data
     String otaHeadline;
     uint16_t otaPercent = 0;
-
-    // Screen D data
-    String alertTitle;
-    String alertDetail;
 
 private:
     void renderScreenA();
     void renderScreenB();
     void renderScreenC();
     void renderScreenD();
+    void renderScreenBoot();
+    void renderScreenOTA();
 
-    void clearRow(int row);
-    void writeRow(int row, const String& text);
-    void printTime(uint32_t seconds);
+    void prepareBuffers();
+    void flushLine(int row);
+    void flushLines();
+    void writeText(int row, int col, const String& text);
+    void writeChar(int row, int col, char value);
+    String formatTime(uint32_t seconds) const;
     char progressChar(int idx) const;
     void ensureCustomChars();
 
     LiquidCrystal_I2C lcd;
-    Id screen;
+    ID screen;
     bool customCharsLoaded;
+    String lineBuffer[2];
 };

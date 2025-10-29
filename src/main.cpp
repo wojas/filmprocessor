@@ -29,6 +29,7 @@ const char* password = SECRET_WIFI_PASS;
 uint32_t last_ota_time = 0;
 
 Screen screen;
+bool screenReady = false;
 
 WiFiClient espClient;
 //PubSubClient client(espClient);
@@ -45,10 +46,12 @@ void mqtt_callback(const char* topic, const byte* payload, unsigned int length) 
     if (topicString == "letsroll/reboot") {
         motor_target_duty(0);
         LOGF("[MQTT] reboot requested");
-        screen.alertTitle = "MQTT reboot!";
-        screen.alertDetail = "";
-        screen.setScreen(Screen::Id::D);
-        screen.render();
+        screen.bootStatus = "MQTT reboot!";
+        screen.bootInfo = "";
+        if (screenReady) {
+            screen.setScreen(Screen::ID::Boot);
+            screen.render();
+        }
         delay(5000);
         ESP.restart();
         return;
@@ -146,17 +149,17 @@ void setup() {
     // Setup LCD for early error output
     LOGF("Setting up LCD");
     unsigned long lcd_begin_start = millis();
-    bool lcd_ready = screen.begin();
+    screenReady = screen.begin();
     unsigned long lcd_begin_end = millis();
-    if (!lcd_ready) {
+    if (!screenReady) {
         LOGF("PCF8574 is not connected or lcd pins declaration is wrong. Only pins numbers: 4,5,6,16,11,12,13,14 are legal.");
         error_blink(10, 500, 200); // takes 7s
         //ESP.restart(); // FIXME: If not initialized, can it crash later when writing to it?
     } else {
         LOGF("LCD init took in ms: %lu", (lcd_begin_end - lcd_begin_start));
-        screen.statusLine = "Let's roll!";
-        screen.infoLine = "";
-        screen.setScreen(Screen::Id::B);
+        screen.bootStatus = "Let's roll!";
+        screen.bootInfo = "";
+        screen.setScreen(Screen::ID::Boot);
         unsigned long lcd_write_start = millis();
         screen.render();
         unsigned long lcd_write_end = millis();
@@ -164,10 +167,10 @@ void setup() {
     }
 
     // https://community.platformio.org/t/esp32-ota-using-platformio/15057/4
-    screen.statusLine = "WiFi:";
-    screen.infoLine = ssid;
-    if (lcd_ready) {
-        screen.setScreen(Screen::Id::B);
+    screen.bootStatus = "WiFi:";
+    screen.bootInfo = ssid;
+    if (screenReady) {
+        screen.setScreen(Screen::ID::Boot);
         screen.render();
     }
     LOGF("[WiFi] Connecting to WiFI network %s", ssid);
@@ -182,9 +185,9 @@ void setup() {
         Serial.println("[WiFi] Connection Failed!");
         char buffer[17];
         snprintf(buffer, sizeof(buffer), "WiFi err %3d", wifi_res);
-        screen.statusLine = buffer;
-        screen.infoLine = "";
-        if (lcd_ready) {
+        screen.bootStatus = buffer;
+        screen.bootInfo = "";
+        if (screenReady) {
             screen.render();
         }
 
@@ -196,17 +199,17 @@ void setup() {
         LOGF("[WiFi] connected, IP address: %s", ip.toString().c_str());
 
         // Display IP for 500ms
-        screen.statusLine = "WiFi ready";
-        screen.infoLine = ip.toString();
-        if (lcd_ready) {
+        screen.bootStatus = "WiFi ready";
+        screen.bootInfo = ip.toString();
+        if (screenReady) {
             screen.render();
             delay(500);
-            screen.infoLine = "";
+            screen.bootInfo = "";
             screen.render();
         }
     }
-    screen.setScreen(Screen::Id::A);
-    if (lcd_ready) {
+    if (screenReady) {
+        screen.setScreen(Screen::ID::A);
         screen.render();
     }
 
@@ -249,15 +252,19 @@ void setup() {
             LOGF("[OTA] Start updating %s", type.c_str());
             screen.otaHeadline = "Update " + type;
             screen.otaPercent = 0;
-            screen.setScreen(Screen::Id::C);
-            screen.render();
+            if (screenReady) {
+                screen.setScreen(Screen::ID::OTA);
+                screen.render();
+            }
         })
         .onEnd([]()
         {
             Serial.println("\nEnd");
             screen.otaHeadline = "Update done";
             screen.otaPercent = 100;
-            screen.render();
+            if (screenReady) {
+                screen.render();
+            }
         })
         .onProgress([](unsigned int progress, unsigned int total)
         {
@@ -268,7 +275,9 @@ void setup() {
             // Need uint16
             uint16_t pct = 100 * progress / total;
             screen.otaPercent = pct;
-            screen.render();
+            if (screenReady) {
+                screen.render();
+            }
         })
         .onError([](ota_error_t error)
         {
@@ -285,10 +294,12 @@ void setup() {
                 err = "End Failed";
             }
             LOGF("[OTA] Error %u: %s", error, err);
-            screen.alertTitle = String("Error ") + error;
-            screen.alertDetail = err;
-            screen.setScreen(Screen::Id::D);
-            screen.render();
+            screen.bootStatus = String("Error ") + error;
+            screen.bootInfo = err;
+            if (screenReady) {
+                screen.setScreen(Screen::ID::Boot);
+                screen.render();
+            }
             sleep(5);
         });
     ArduinoOTA.begin();
@@ -416,7 +427,7 @@ void kp_handle(char key) {
         }
     }
     screen.keypadBuffer = buffer;
-    if (screen.currentScreen() == Screen::Id::A) {
+    if (screenReady && screen.currentScreen() == Screen::ID::A) {
         screen.render();
     }
 }
@@ -444,7 +455,7 @@ void loop() {
     }
 
     // LCD update
-    if (now - last_lcd > 200) {
+    if (screenReady && now - last_lcd > 200) {
         screen.rpm = motor_rpm();
         screen.targetRpm = motor_get_target_rpm();
         screen.duty = motor_duty();
