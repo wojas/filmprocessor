@@ -4,29 +4,18 @@
 #include <PubSubClient.h>
 #include "secrets.h"
 
+#include <cstdio>
 #include <Wire.h>
-#include <LiquidCrystal_I2C.h>
 #include <Keypad.h>
 #include <Pushbutton.h>
 
+#include "screen.hpp"
 #include "mqtt.hpp"
 #include "logger.hpp"
 
 #include "motor.h"
 
 #define LED 2
-
-// https://registry.platformio.org/libraries/enjoyneering/LiquidCrystal_I2C/examples/HelloWorld/HelloWorld.ino
-LiquidCrystal_I2C lcd(PCF8574_ADDR_A21_A11_A01, 4, 5, 6, 16, 11, 12, 13, 14, POSITIVE);
-//LiquidCrystal_I2C lcd(PCF8574A_ADDR_A21_A11_A01, 4, 5, 6, 16, 11, 12, 13, 14, POSITIVE);
-
-// LCD custom characters for progress made from this by pointing at the right offset
-byte progress_char_base[16] = {
-        0, 0, 0, 0,
-        0, 0, 0, 0,
-        255, 255, 255, 255,
-        255, 255, 255, 255
-    };
 
 #define BUTTON_ROLL 32
 //#define BUTTON_TIME 35
@@ -38,6 +27,8 @@ Pushbutton buttonTime(BUTTON_TIME);
 const char* ssid = SECRET_WIFI_SSID;
 const char* password = SECRET_WIFI_PASS;
 uint32_t last_ota_time = 0;
+
+Screen screen;
 
 WiFiClient espClient;
 //PubSubClient client(espClient);
@@ -54,9 +45,10 @@ void mqtt_callback(const char* topic, const byte* payload, unsigned int length) 
     if (topicString == "letsroll/reboot") {
         motor_target_duty(0);
         LOGF("[MQTT] reboot requested");
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("MQTT reboot!");
+        screen.alertTitle = "MQTT reboot!";
+        screen.alertDetail = "";
+        screen.setScreen(Screen::Id::D);
+        screen.render();
         delay(5000);
         ESP.restart();
         return;
@@ -136,12 +128,6 @@ void reset_timer() {
     start_millis = now;
 }
 
-void lcd_print_time(uint32_t seconds) {
-    auto minutes = seconds / 60;
-    seconds = seconds % 60;
-    lcd.printf("%2d:%02d", minutes, seconds);
-}
-
 void error_blink(const int count, const int on_delay, const int off_delay) {
     for (int i = 0; i < count; i++) {
         digitalWrite(LED, HIGH);
@@ -151,44 +137,39 @@ void error_blink(const int count, const int on_delay, const int off_delay) {
     }
 }
 
-void lcd_clear_row(const int row) {
-    lcd.setCursor(0, row);
-    lcd.print("                "); // 16 spaces
-    lcd.setCursor(0, row);
-}
-
-char progress_char(int idx) {
-    // We defined custom progress characters 0-7 (vertical bar chart), and 0xFF is a full block
-    return idx < 8 ? static_cast<char>(idx) : 0xFF;
-}
-
 WiFiClient mqttClient;
 
 void setup() {
     Serial.begin(115200);
-    pinMode(LED,OUTPUT);
+    pinMode(LED, OUTPUT);
 
     // Setup LCD for early error output
     LOGF("Setting up LCD");
-    if (lcd.begin(16, 2, LCD_5x8DOTS) != 1) //colums, rows, characters size
-    {
+    unsigned long lcd_begin_start = millis();
+    bool lcd_ready = screen.begin();
+    unsigned long lcd_begin_end = millis();
+    if (!lcd_ready) {
         LOGF("PCF8574 is not connected or lcd pins declaration is wrong. Only pins numbers: 4,5,6,16,11,12,13,14 are legal.");
         error_blink(10, 500, 200); // takes 7s
         //ESP.restart(); // FIXME: If not initialized, can it crash later when writing to it?
-    }
-    unsigned long t0 = millis();
-    lcd.clear();
-    lcd.print(F("Let's roll!"));
-    unsigned long t1 = millis();
-    LOGF("LCD write took in ms: %d", t1 - t0);
-    for (int i = 0; i < 8; i++) {
-        lcd.createChar(i, progress_char_base + i);
+    } else {
+        LOGF("LCD init took in ms: %lu", (lcd_begin_end - lcd_begin_start));
+        screen.statusLine = "Let's roll!";
+        screen.infoLine = "";
+        screen.setScreen(Screen::Id::B);
+        unsigned long lcd_write_start = millis();
+        screen.render();
+        unsigned long lcd_write_end = millis();
+        LOGF("LCD write took in ms: %lu", (lcd_write_end - lcd_write_start));
     }
 
     // https://community.platformio.org/t/esp32-ota-using-platformio/15057/4
-    lcd_clear_row(1);
-    lcd.print(F("WiFi:"));
-    lcd.print(ssid);
+    screen.statusLine = "WiFi:";
+    screen.infoLine = ssid;
+    if (lcd_ready) {
+        screen.setScreen(Screen::Id::B);
+        screen.render();
+    }
     LOGF("[WiFi] Connecting to WiFI network %s", ssid);
     digitalWrite(LED,HIGH);
     const char* name = "filmprocessor";
@@ -199,8 +180,13 @@ void setup() {
     if (wifi_res != WL_CONNECTED) {
         digitalWrite(LED,LOW);
         Serial.println("[WiFi] Connection Failed!");
-        lcd_clear_row(0);
-        lcd.printf("WiFi err %3d    ", wifi_res);
+        char buffer[17];
+        snprintf(buffer, sizeof(buffer), "WiFi err %3d", wifi_res);
+        screen.statusLine = buffer;
+        screen.infoLine = "";
+        if (lcd_ready) {
+            screen.render();
+        }
 
         error_blink(15, 200, 100); // takes 4.5s
         //ESP.restart();
@@ -210,10 +196,18 @@ void setup() {
         LOGF("[WiFi] connected, IP address: %s", ip.toString().c_str());
 
         // Display IP for 500ms
-        lcd_clear_row(1);
-        lcd.print(ip.toString());
-        delay(500);
-        lcd_clear_row(1);
+        screen.statusLine = "WiFi ready";
+        screen.infoLine = ip.toString();
+        if (lcd_ready) {
+            screen.render();
+            delay(500);
+            screen.infoLine = "";
+            screen.render();
+        }
+    }
+    screen.setScreen(Screen::Id::A);
+    if (lcd_ready) {
+        screen.render();
     }
 
     // Setup MQTT and logging (over serial, telnet, and mqtt)
@@ -253,13 +247,17 @@ void setup() {
 
             // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
             LOGF("[OTA] Start updating %s", type.c_str());
-            lcd.clear();
-            lcd.print("Update " + type);
+            screen.otaHeadline = "Update " + type;
+            screen.otaPercent = 0;
+            screen.setScreen(Screen::Id::C);
+            screen.render();
         })
         .onEnd([]()
         {
             Serial.println("\nEnd");
-            lcd.print("Update done");
+            screen.otaHeadline = "Update done";
+            screen.otaPercent = 100;
+            screen.render();
         })
         .onProgress([](unsigned int progress, unsigned int total)
         {
@@ -267,10 +265,10 @@ void setup() {
                 LOGF("[OTA] Progress: %u%%", (progress / (total / 100)));
                 last_ota_time = millis();
             }
-            lcd.setCursor(0, 1);
             // Need uint16
             uint16_t pct = 100 * progress / total;
-            lcd.printHorizontalGraph('*', 1, pct, 100);
+            screen.otaPercent = pct;
+            screen.render();
         })
         .onError([](ota_error_t error)
         {
@@ -287,11 +285,10 @@ void setup() {
                 err = "End Failed";
             }
             LOGF("[OTA] Error %u: %s", error, err);
-            lcd.clear();
-            lcd.setCursor(0, 0);
-            lcd.printf("Error %u", error);
-            lcd.setCursor(0, 1);
-            lcd.print(err);
+            screen.alertTitle = String("Error ") + error;
+            screen.alertDetail = err;
+            screen.setScreen(Screen::Id::D);
+            screen.render();
             sleep(5);
         });
     ArduinoOTA.begin();
@@ -418,10 +415,10 @@ void kp_handle(char key) {
             }
         }
     }
-    lcd.setCursor(8, 1);
-    lcd.print("        ");
-    lcd.setCursor(16 - buffer.length(), 1);
-    lcd.print(buffer);
+    screen.keypadBuffer = buffer;
+    if (screen.currentScreen() == Screen::Id::A) {
+        screen.render();
+    }
 }
 
 void loop() {
@@ -448,31 +445,14 @@ void loop() {
 
     // LCD update
     if (now - last_lcd > 200) {
-        //lcd.clear();
-        lcd.setCursor(0, 0);
-        int rpm = motor_rpm();
-        int duty = motor_duty();
-
-        // 0-8, only 0 if duty==0
-        char duty_char = duty / 32 + 1;
-        if (duty == 0) duty_char = 0;
-
-        if (motor_is_paused() && rpm == 0 && duty == 0) {
-            lcd.printf("[P]/%2d D%3d%c", motor_get_target_rpm(), duty, duty_char);
-        } else {
-            lcd.printf("%3d/%2d D%3d%c", rpm, motor_get_target_rpm(), duty, duty_char);
-        }
-        char progress = motor_position_degrees() / 40; // 0-8
-        lcd.setCursor(15, 0);
-        lcd.write(progress_char(progress));
-
-        auto seconds = (now - start_millis) / 1000;
-        lcd.setCursor(0, 1);
-        lcd_print_time(seconds);
-        if (prev_time_sec > 0) {
-            lcd.setCursor(6, 1);
-            lcd_print_time(prev_time_sec);
-        }
+        screen.rpm = motor_rpm();
+        screen.targetRpm = motor_get_target_rpm();
+        screen.duty = motor_duty();
+        screen.paused = motor_is_paused();
+        screen.progressDegrees = static_cast<int>(motor_position_degrees());
+        screen.elapsedSeconds = (now - start_millis) / 1000;
+        screen.previousCycleSeconds = prev_time_sec;
+        screen.render();
         last_lcd = now;
     }
 
