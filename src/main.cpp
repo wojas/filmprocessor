@@ -277,10 +277,9 @@ void setup() {
                 err = "End Failed";
             }
             LOGF("[OTA] Error %u: %s", error, err);
-            // FIXME: Add Error screen
-            screen.bootStatus = String("Error ") + error;
-            screen.bootInfo = err;
-            screen.setScreen(Screen::ID::Boot);
+            screen.errorStatus = String("OTA err ") + error;
+            screen.errorInfo = err;
+            screen.setScreen(Screen::ID::Error);
             screen.render();
             sleep(5);
             screen.popScreen();
