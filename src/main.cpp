@@ -13,11 +13,7 @@
 #include "screen.hpp"
 #include "input_match.hpp"
 
-#if __has_include("secrets.h")
 #include "secrets.h"
-#else
-#include "secrets.example.h"
-#endif
 #include "config.h"
 
 #include "motor.h"

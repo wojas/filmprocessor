@@ -13,6 +13,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare secrets header
+        run: cp include/secrets.example.h include/secrets.h
+
       - name: Install PlatformIO
         run: pip install --upgrade platformio
 
