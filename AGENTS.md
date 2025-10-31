@@ -18,6 +18,8 @@
 - Prefer `snake_case` for functions and globals (`motor_calc_rpm`), `PascalCase` for classes, and all-caps for `#define` macros.
 - Leverage C++17 features already enabled (e.g., `auto`, `constexpr`, structured bindings) and route diagnostics through `LOGF`/`LOG` helpers.
 - Place hardware constants near their usage in `*.cpp` files; expose only the minimal API in headers.
+- Words in names that are initialisms or acronyms (e.g. “URL” or “NATO”) have a consistent case.
+- Add a short concise doc comment before each function, method, or class.
 
 ## Testing Guidelines
 - Add Unity test cases under `test/` named `test_<feature>.cpp`, mirroring the module under test.
