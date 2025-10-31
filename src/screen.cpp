@@ -10,8 +10,12 @@ static uint8_t progress_char_base[16] = {
     };
 
 Screen::Screen()
+#ifdef ARDUINO
     : lcd(PCF8574_ADDR_A21_A11_A01, 4, 5, 6, 16, 11, 12, 13, 14, POSITIVE),
       screen(ID::A),
+#else
+    : screen(ID::A),
+#endif
       customCharsLoaded(false),
       initialized(false),
       screenStackSize(0) {
@@ -21,11 +25,15 @@ Screen::Screen()
 
 bool Screen::begin() {
     customCharsLoaded = false;
+#ifdef ARDUINO
     initialized = (lcd.begin(16, 2, LCD_5x8DOTS) == 1);
     if (!initialized) {
         return false;
     }
     lcd.clear();
+#else
+    initialized = true;
+#endif
     ensureCustomChars();
     return true;
 }
@@ -41,7 +49,9 @@ void Screen::setScreen(ID id) {
     if (!initialized) {
         return;
     }
+#ifdef ARDUINO
     lcd.clear();
+#endif
 }
 
 void Screen::pushScreen(ID id) {
@@ -62,9 +72,11 @@ bool Screen::popScreen() {
     ScreenState previous = screenStack[--screenStackSize];
     screen = previous.id;
     page = previous.page;
+#ifdef ARDUINO
     if (initialized) {
         lcd.clear();
     }
+#endif
     return true;
 }
 
@@ -185,8 +197,12 @@ void Screen::prepareBuffers() {
 }
 
 void Screen::flushLine(int row) {
+#ifdef ARDUINO
     lcd.setCursor(0, row);
     lcd.print(lineBuffer[row]);
+#else
+    (void)row;
+#endif
 }
 
 void Screen::flushLines() {
@@ -236,8 +252,10 @@ void Screen::ensureCustomChars() {
     if (!initialized || customCharsLoaded) {
         return;
     }
+#ifdef ARDUINO
     for (int i = 0; i < 8; i++) {
-        lcd.createChar(i, progress_char_base + i);
+        lcd.createChar(static_cast<uint8_t>(i), progress_char_base + i);
     }
+#endif
     customCharsLoaded = true;
 }
