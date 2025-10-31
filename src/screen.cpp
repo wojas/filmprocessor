@@ -237,6 +237,9 @@ void Screen::writeChar(int row, int col, char value) {
 String Screen::formatTime(uint32_t seconds) const {
     uint32_t minutes = seconds / 60;
     uint32_t remainder = seconds % 60;
+    if (minutes > 99) {
+        minutes = 99; // display is limited to two minute digits
+    }
     char buffer[6];
     snprintf(buffer, sizeof(buffer), "%2lu:%02lu",
         static_cast<unsigned long>(minutes),
