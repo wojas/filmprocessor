@@ -1,6 +1,15 @@
 #ifndef FILMPROCESSOR_CONFIG_H
 #define FILMPROCESSOR_CONFIG_H
 
+// GPIO for LED (flashes in patterns when setup goes very wrong)
+#define LED 2
+
+// Button GPIO to pause and resume rotation
+#define BUTTON_ROLL 32
+
+// Button GPIO to reset the time (stopwatch)
+#define BUTTON_TIME 33
+
 // GPIO that controls the motor H-bridge direction: LOW = forward, HIGH = reverse.
 #define MOTOR_DIR_GPIO 12
 

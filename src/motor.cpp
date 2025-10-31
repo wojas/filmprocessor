@@ -6,10 +6,11 @@
 #include "logger.hpp"
 #include "mqtt.hpp"
 
+#include "config.h"
+
 #include "motor.h"
 
 extern "C" {
-#include "config.h"
 
 //typedef struct {
 //    int pulse_gpio_num;          /*!< Pulse input GPIO number, if you want to use GPIO16, enter pulse_gpio_num = 16, a negative value will be ignored */

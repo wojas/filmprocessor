@@ -2,7 +2,6 @@
 #include <WiFi.h>
 #include <ArduinoOTA.h>
 #include <PubSubClient.h>
-#include "secrets.h"
 
 #include <cstdio>
 #include <Wire.h>
@@ -14,13 +13,11 @@
 #include "screen.hpp"
 #include "input_match.hpp"
 
+#include "secrets.h"
+#include "config.h"
+
 #include "motor.h"
 
-#define LED 2
-
-#define BUTTON_ROLL 32
-//#define BUTTON_TIME 35
-#define BUTTON_TIME 33
 
 Pushbutton buttonRoll(BUTTON_ROLL);
 Pushbutton buttonTime(BUTTON_TIME);
@@ -31,12 +28,8 @@ uint32_t last_ota_time = 0;
 
 Screen screen;
 
-WiFiClient espClient;
-//PubSubClient client(espClient);
 unsigned long lastMsg = 0;
-#define MSG_BUFFER_SIZE	(80)
-char msg[MSG_BUFFER_SIZE];
-int value = 0;
+
 
 void mqtt_callback(const char* topic, const byte* payload, unsigned int length) {
     LOGF("[MQTT] Message topic=%s : %.*s", topic, length, payload);
