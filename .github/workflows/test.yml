@@ -7,7 +7,7 @@ on:
   pull_request:
 
 jobs:
-  native-tests:
+  tests:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -18,3 +18,6 @@ jobs:
 
       - name: Run native unit tests
         run: pio test -e native
+
+      - name: Build ESP32 firmware
+        run: pio run -e nodemcu-32s
