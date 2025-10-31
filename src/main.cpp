@@ -117,6 +117,7 @@ static InputMatch keypad_matcher;
 
 void reset_timer();
 
+// init_keypad_routes defines handlers for different keypad input patterns
 static void init_keypad_routes() {
     keypad_matcher.match("Annn#", [](const InputMatch::Result& res) {
         if (res.has_number && res.number < 100) {
@@ -379,13 +380,6 @@ void setup() {
 
 int last_dt = 0;
 
-void kp_handle(char key) {
-    keypad_matcher.consume(key);
-    screen.keypadBuffer = keypad_matcher.buffer().c_str();
-    if (screen.currentScreen() == Screen::ID::A) {
-        screen.render();
-    }
-}
 
 void loop() {
     //Serial.println("loop");
@@ -426,7 +420,9 @@ void loop() {
     char key = keypad.getKey();
     if (key) {
         Serial.printf("Keypad: %c\n", key);
-        kp_handle(key);
+        keypad_matcher.consume(key);
+        screen.keypadBuffer = keypad_matcher.buffer().c_str();
+        screen.render();
     }
 
     // Handle the ROLL and TIME button
