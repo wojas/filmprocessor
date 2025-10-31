@@ -241,7 +241,7 @@ void setup() {
             LOGF("[OTA] Start updating %s", type.c_str());
             screen.otaHeadline = "Update " + type;
             screen.otaPercent = 0;
-            screen.setScreen(Screen::ID::OTA);
+            screen.pushScreen(Screen::ID::OTA);
             screen.render();
         })
         .onEnd([]()
@@ -277,11 +277,13 @@ void setup() {
                 err = "End Failed";
             }
             LOGF("[OTA] Error %u: %s", error, err);
+            // FIXME: Add Error screen
             screen.bootStatus = String("Error ") + error;
             screen.bootInfo = err;
             screen.setScreen(Screen::ID::Boot);
             screen.render();
             sleep(5);
+            screen.popScreen();
         });
     ArduinoOTA.begin();
 
