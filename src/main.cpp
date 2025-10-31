@@ -410,6 +410,18 @@ void loop() {
         screen.duty = motor_duty();
         screen.paused = motor_is_paused();
         screen.progressDegrees = static_cast<int>(motor_position_degrees());
+        screen.targetRotation = motor_get_target_rotation_per_cycle();
+        screen.targetProgress = motor_get_target_progress();
+        screen.pidIntegral = motor_pid_integral();
+        screen.pidError = motor_pid_error();
+        screen.totalCount = motor_total_count_signed();
+        screen.totalDirection = motor_direction_sign();
+        screen.motorState = motor_state_id();
+        screen.stateAgeMs = motor_state_age_ms();
+        screen.lastCycleMs = motor_last_cycle_duration_ms();
+        screen.prevCycleMs = motor_prev_cycle_duration_ms();
+        screen.lastForwardDegrees = motor_last_forward_degrees();
+        screen.lastBackwardDegrees = motor_last_backward_degrees();
         screen.elapsedSeconds = (now - start_millis) / 1000;
         screen.previousCycleSeconds = prev_time_sec;
         screen.render();

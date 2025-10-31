@@ -40,6 +40,18 @@ public:
     uint32_t elapsedSeconds = 0;
     uint32_t previousCycleSeconds = 0;
     String keypadBuffer;
+    int targetRotation = 0;
+    int targetProgress = 0;
+    int pidIntegral = 0;
+    int pidError = 0;
+    int32_t totalCount = 0;
+    int totalDirection = 1;
+    int motorState = 0;
+    uint32_t stateAgeMs = 0;
+    uint32_t lastCycleMs = 0;
+    uint32_t prevCycleMs = 0;
+    int lastForwardDegrees = 0;
+    int lastBackwardDegrees = 0;
 
     // Screen Boot data
     String bootStatus;

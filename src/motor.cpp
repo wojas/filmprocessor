@@ -82,6 +82,26 @@ volatile bool target_pause = true;
 volatile int last_rpm = 0;
 volatile uint32_t last_rpm_millis = 0;
 volatile int last_duty = 0;
+volatile int pid_integral = 0;
+volatile int pid_error = 0;
+volatile uint32_t stroke_start_millis = 0;
+volatile int stroke_start_rotation = 0;
+volatile int stroke_direction = 1;
+volatile uint32_t cycle_start_millis = 0;
+volatile uint32_t last_cycle_duration_ms = 0;
+volatile uint32_t prev_cycle_duration_ms = 0;
+volatile int last_forward_degrees = 0;
+volatile int last_backward_degrees = 0;
+
+void _start_new_stroke() {
+    const uint32_t now = millis();
+    stroke_start_millis = now;
+    stroke_start_rotation = motor_calc_rotation_degrees(total_count);
+    stroke_direction = direction >= 0 ? 1 : -1;
+    if (stroke_direction > 0) {
+        cycle_start_millis = now;
+    }
+}
 
 static int rotation_delta_for_direction(int dir) {
     // Split progress across the two strokes in a cycle so alternating directions remain
@@ -173,6 +193,62 @@ void motor_set_paused(const bool pause) {
 bool motor_toggle_paused() {
     target_pause = !target_pause;
     return target_pause;
+}
+
+int motor_get_target_rotation_per_cycle() {
+    return target_rotation_per_cycle;
+}
+
+int motor_get_target_progress() {
+    return target_progress;
+}
+
+int motor_pid_integral() {
+    return pid_integral;
+}
+
+int motor_pid_error() {
+    return pid_error;
+}
+
+int32_t motor_total_count_signed() {
+    return total_count;
+}
+
+uint32_t motor_total_count_forward() {
+    return total_count_fw;
+}
+
+uint32_t motor_total_count_backward() {
+    return total_count_bw;
+}
+
+int motor_direction_sign() {
+    return direction >= 0 ? 1 : -1;
+}
+
+int motor_state_id() {
+    return static_cast<int>(state);
+}
+
+uint32_t motor_state_age_ms() {
+    return millis() - state_change_millis;
+}
+
+uint32_t motor_last_cycle_duration_ms() {
+    return last_cycle_duration_ms;
+}
+
+uint32_t motor_prev_cycle_duration_ms() {
+    return prev_cycle_duration_ms;
+}
+
+int motor_last_forward_degrees() {
+    return last_forward_degrees;
+}
+
+int motor_last_backward_degrees() {
+    return last_backward_degrees;
 }
 
 // Absolute motor axis orientation in degrees (0-359).
@@ -457,6 +533,24 @@ void motor_monitor_task(void* params) {
                     int32_t total_rotation = motor_calc_rotation_degrees(total_count);
                     // The direction matters here. Here it ensures we compare in the right direction.
                     if ((direction * total_rotation) >= (direction * target_rotation)) {
+                        const uint32_t now_ms = millis();
+                        int stroke_delta = (total_rotation - stroke_start_rotation) * stroke_direction;
+                        if (stroke_delta < 0) {
+                            stroke_delta = -stroke_delta;
+                        }
+                        if (stroke_direction > 0) {
+                            last_forward_degrees = stroke_delta;
+                        } else {
+                            last_backward_degrees = stroke_delta;
+                            prev_cycle_duration_ms = last_cycle_duration_ms;
+                            if (cycle_start_millis != 0) {
+                                last_cycle_duration_ms = now_ms - cycle_start_millis;
+                            } else {
+                                last_cycle_duration_ms = now_ms - stroke_start_millis;
+                            }
+                            cycle_start_millis = now_ms;
+                        }
+
                         const int next_direction = -direction;
                         const int delta = rotation_delta_for_direction(next_direction);
                         target_direction = next_direction;
@@ -491,8 +585,9 @@ void motor_monitor_task(void* params) {
                 }
 
                 // Adjust motor duty to match RPM
+                pid_error = target_rpm - rpm;
                 if (rpm != target_rpm) {
-                    int diff = target_rpm - rpm; // positive if not fast enough
+                    int diff = pid_error; // positive if not fast enough
                     int diff_filtered = target_rpm - rpm_filtered;
 
                     // Small smoother adjustments when we are near our target
@@ -512,9 +607,8 @@ void motor_monitor_task(void* params) {
                     }
 
                     //int adjust = diff; // only way now to get a precision of 1
-                    static int i_accum = 0;
-                    i_accum = std::clamp(i_accum + diff, -MOTOR_I_MAX, MOTOR_I_MAX);
-                    int adjust = MOTOR_KP * diff + MOTOR_KI * i_accum;
+                    pid_integral = std::clamp(pid_integral + diff, -MOTOR_I_MAX, MOTOR_I_MAX);
+                    int adjust = MOTOR_KP * diff + MOTOR_KI * pid_integral;
 
                     // Limit adjustment per tick (20ms)
                     if (adjust > MOTOR_ADJUST_LIMIT) {
@@ -586,6 +680,7 @@ void motor_monitor_task(void* params) {
             if (last_rpm < 5 || state_age >= MOTOR_COAST_MSEC) {
                 direction = target_direction;
                 motor_flush_direction();
+                _start_new_stroke();
 
                 if (!want_running) {
                     _transition(State::Idle);
@@ -641,6 +736,7 @@ void motor_init() {
     // Direction pin
     pinMode(MOTOR_DIR_GPIO,OUTPUT);
     motor_flush_direction();
+    _start_new_stroke();
 
     // Start paused
     target_pause = true;
