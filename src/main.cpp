@@ -310,6 +310,7 @@ void kp_handle(char key) {
     // Keypad state
     static char mode = 0;
     static uint16_t val = 0;
+    static bool val_zero_start = false;
     static String buffer;
     char digit = 0;
 
@@ -334,6 +335,7 @@ void kp_handle(char key) {
         if (key == '*') {
             mode = 0;
             val = 0;
+            val_zero_start = false;
             buffer.clear();
             break;
         }
@@ -345,7 +347,12 @@ void kp_handle(char key) {
                 }
                 break;
             case 'B':
-                motor_target_progress(val);
+                // Use a leading 0 to indicate a negative value here.
+                if (val_zero_start && val > 0) {
+                    motor_target_progress(-static_cast<int>(val));
+                } else {
+                    motor_target_progress(static_cast<int>(val));
+                }
                 break;
             case 'C':
                 motor_target_rotation_per_cycle(val);
@@ -360,11 +367,15 @@ void kp_handle(char key) {
             }
             mode = 0;
             val = 0;
+            val_zero_start = false;
             break;
         }
         // Input number
         digit = key - '0';
         if (digit >= 0 && digit <= 9) {
+            if (val == 0 && digit == 0 && !val_zero_start) {
+                val_zero_start = true;
+            }
             val = val * 10 + digit;
         }
         break;
@@ -426,10 +437,12 @@ void kp_handle(char key) {
             case '*':
                 mode = key;
                 val = 0;
+                val_zero_start = false;
                 break;
             default:
                 mode = 0;
                 val = 0;
+                val_zero_start = false;
                 break;
             }
         }
