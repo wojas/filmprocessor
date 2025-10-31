@@ -13,7 +13,8 @@ Screen::Screen()
     : lcd(PCF8574_ADDR_A21_A11_A01, 4, 5, 6, 16, 11, 12, 13, 14, POSITIVE),
       screen(ID::A),
       customCharsLoaded(false),
-      initialized(false) {
+      initialized(false),
+      screenStackSize(0) {
     lineBuffer[0].reserve(16);
     lineBuffer[1].reserve(16);
 }
@@ -38,6 +39,26 @@ void Screen::setScreen(ID id) {
         return;
     }
     lcd.clear();
+}
+
+void Screen::pushScreen(ID id) {
+    if (screenStackSize == screenStackCapacity) {
+        for (size_t i = 1; i < screenStackCapacity; ++i) {
+            screenStack[i - 1] = screenStack[i];
+        }
+        screenStackSize = screenStackCapacity - 1;
+    }
+    screenStack[screenStackSize++] = screen;
+    setScreen(id);
+}
+
+bool Screen::popScreen() {
+    if (screenStackSize == 0) {
+        return false;
+    }
+    ID previous = screenStack[--screenStackSize];
+    setScreen(previous);
+    return true;
 }
 
 void Screen::render() {

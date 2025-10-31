@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <LiquidCrystal_I2C.h>
+#include <array>
 
 class Screen {
 public:
@@ -18,6 +19,16 @@ public:
 
     bool begin();
     void setScreen(ID id);
+    /**
+     * Pushes the current screen onto the stack and switches to the requested one.
+     */
+    void pushScreen(ID id);
+    /**
+     * Restores the previously active screen, if any.
+     *
+     * @return true when a previous screen was restored, false if the stack was empty.
+     */
+    bool popScreen();
     ID currentScreen() const { return screen; }
     void render();
 
@@ -61,4 +72,7 @@ private:
     bool customCharsLoaded;
     bool initialized;
     String lineBuffer[2];
+    static constexpr size_t screenStackCapacity = 8;
+    std::array<ID, screenStackCapacity> screenStack;
+    size_t screenStackSize;
 };
