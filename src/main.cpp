@@ -119,12 +119,18 @@ void reset_timer();
 
 // init_keypad_routes defines handlers for different keypad input patterns
 static void init_keypad_routes() {
-    keypad_matcher.match("Annn#", [](const InputMatch::Result& res) {
+    keypad_matcher.match("A", [](const InputMatch::Result& res) {
+        screen.setScreen(Screen::ID::A);
+    });
+    keypad_matcher.match("B", [](const InputMatch::Result& res) {
+        screen.setScreen(Screen::ID::B);
+    });
+    keypad_matcher.match("*Annn#", [](const InputMatch::Result& res) {
         if (res.has_number && res.number < 100) {
             motor_target_rpm(res.number);
         }
     });
-    keypad_matcher.match("Bnnn#", [](const InputMatch::Result& res) {
+    keypad_matcher.match("*Bnnn#", [](const InputMatch::Result& res) {
         if (!res.has_number) {
             return;
         }
@@ -134,12 +140,12 @@ static void init_keypad_routes() {
         }
         motor_target_progress(value);
     });
-    keypad_matcher.match("Cnnn#", [](const InputMatch::Result& res) {
+    keypad_matcher.match("*Cnnn#", [](const InputMatch::Result& res) {
         if (res.has_number) {
             motor_target_rotation_per_cycle(res.number);
         }
     });
-    keypad_matcher.match("Dnnn#", [](const InputMatch::Result& res) {
+    keypad_matcher.match("*Dnnn#", [](const InputMatch::Result& res) {
         if (res.has_number && res.number <= 255) {
             motor_target_duty(res.number);
         }
@@ -410,6 +416,19 @@ void loop() {
         screen.duty = motor_duty();
         screen.paused = motor_is_paused();
         screen.progressDegrees = static_cast<int>(motor_position_degrees());
+        // Feed Screen B's diagnostics pages with live motor metrics.
+        screen.targetRotation = motor_get_target_rotation_per_cycle();
+        screen.targetProgress = motor_get_target_progress();
+        screen.pidIntegral = motor_pid_integral();
+        screen.pidError = motor_pid_error();
+        screen.totalCount = motor_total_count_signed();
+        screen.totalDirection = motor_direction_sign();
+        screen.motorState = motor_state_id();
+        screen.stateAgeMs = motor_state_age_ms();
+        screen.lastCycleMs = motor_last_cycle_duration_ms();
+        screen.prevCycleMs = motor_prev_cycle_duration_ms();
+        screen.lastForwardDegrees = motor_last_forward_degrees();
+        screen.lastBackwardDegrees = motor_last_backward_degrees();
         screen.elapsedSeconds = (now - start_millis) / 1000;
         screen.previousCycleSeconds = prev_time_sec;
         screen.render();
