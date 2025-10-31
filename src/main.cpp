@@ -85,6 +85,13 @@ void mqtt_callback(const char* topic, const byte* payload, unsigned int length) 
             motor_target_rotation_per_cycle(val);
             break;
         }
+    case 'G':
+        {
+            // Set progress per cycle
+            int val = s.substring(1).toInt();
+            motor_target_progress(val);
+            break;
+        }
     case 'P':
         {
             // Pause the motor
@@ -288,6 +295,7 @@ void setup() {
 
     // Default on startup after future unpause
     motor_target_rotation_per_cycle(720);
+    motor_target_progress(50);
     motor_target_rpm(10);
     motor_init();
 
@@ -302,6 +310,7 @@ void kp_handle(char key) {
     // Keypad state
     static char mode = 0;
     static uint16_t val = 0;
+    static bool val_zero_start = false;
     static String buffer;
     char digit = 0;
 
@@ -326,6 +335,7 @@ void kp_handle(char key) {
         if (key == '*') {
             mode = 0;
             val = 0;
+            val_zero_start = false;
             buffer.clear();
             break;
         }
@@ -337,6 +347,12 @@ void kp_handle(char key) {
                 }
                 break;
             case 'B':
+                // Use a leading 0 to indicate a negative value here.
+                if (val_zero_start && val > 0) {
+                    motor_target_progress(-static_cast<int>(val));
+                } else {
+                    motor_target_progress(static_cast<int>(val));
+                }
                 break;
             case 'C':
                 motor_target_rotation_per_cycle(val);
@@ -351,11 +367,15 @@ void kp_handle(char key) {
             }
             mode = 0;
             val = 0;
+            val_zero_start = false;
             break;
         }
         // Input number
         digit = key - '0';
         if (digit >= 0 && digit <= 9) {
+            if (val == 0 && digit == 0 && !val_zero_start) {
+                val_zero_start = true;
+            }
             val = val * 10 + digit;
         }
         break;
@@ -372,22 +392,39 @@ void kp_handle(char key) {
                 motor_target_duty(0);
                 break;
             case '1':
-                motor_target_rpm(50);
+                motor_target_rotation_per_cycle(900);
+                motor_target_progress(50);
+                motor_target_rpm(70);
                 break;
             case '2':
-                motor_target_rpm(60);
+                motor_target_rotation_per_cycle(720);
+                motor_target_progress(50);
+                motor_target_rpm(50);
                 break;
             case '3':
+                motor_target_rotation_per_cycle(360);
+                motor_target_progress(50);
                 motor_target_rpm(25);
                 break;
+            case '4':
+                motor_target_rotation_per_cycle(720);
+                motor_target_progress(50);
+                motor_target_rpm(60);
+                break;
             case '5':
+                motor_target_rotation_per_cycle(360);
+                motor_target_progress(50);
                 motor_target_rpm(5);
                 break;
             case '6':
+                motor_target_rotation_per_cycle(360);
+                motor_target_progress(50);
                 motor_target_rpm(10);
                 break;
             case '7':
-                motor_target_duty(255);
+                motor_target_rotation_per_cycle(900);
+                motor_target_progress(50);
+                motor_target_duty(230);
                 break;
             case '#':
                 // Reset timer
@@ -400,10 +437,12 @@ void kp_handle(char key) {
             case '*':
                 mode = key;
                 val = 0;
+                val_zero_start = false;
                 break;
             default:
                 mode = 0;
                 val = 0;
+                val_zero_start = false;
                 break;
             }
         }

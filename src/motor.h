@@ -9,6 +9,7 @@ extern "C" {
     void motor_target_duty(uint8_t level);
     void motor_target_rpm(int rpm);
     void motor_target_rotation_per_cycle(int rot);
+    void motor_target_progress(int progress);
     void motor_set_paused(bool pause);
     bool motor_toggle_paused();
 
