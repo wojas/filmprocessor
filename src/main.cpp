@@ -2,7 +2,6 @@
 #include <WiFi.h>
 #include <ArduinoOTA.h>
 #include <PubSubClient.h>
-#include "secrets.h"
 
 #include <cstdio>
 #include <Wire.h>
@@ -14,13 +13,11 @@
 #include "screen.hpp"
 #include "input_match.hpp"
 
+#include "secrets.h"
+#include "config.h"
+
 #include "motor.h"
 
-#define LED 2
-
-#define BUTTON_ROLL 32
-//#define BUTTON_TIME 35
-#define BUTTON_TIME 33
 
 Pushbutton buttonRoll(BUTTON_ROLL);
 Pushbutton buttonTime(BUTTON_TIME);
@@ -31,12 +28,8 @@ uint32_t last_ota_time = 0;
 
 Screen screen;
 
-WiFiClient espClient;
-//PubSubClient client(espClient);
 unsigned long lastMsg = 0;
-#define MSG_BUFFER_SIZE	(80)
-char msg[MSG_BUFFER_SIZE];
-int value = 0;
+
 
 void mqtt_callback(const char* topic, const byte* payload, unsigned int length) {
     LOGF("[MQTT] Message topic=%s : %.*s", topic, length, payload);
@@ -124,6 +117,7 @@ static InputMatch keypad_matcher;
 
 void reset_timer();
 
+// init_keypad_routes defines handlers for different keypad input patterns
 static void init_keypad_routes() {
     keypad_matcher.match("Annn#", [](const InputMatch::Result& res) {
         if (res.has_number && res.number < 100) {
@@ -305,7 +299,7 @@ void setup() {
     MQTT::subscribe("letsroll/reboot");
 
     // https://github.com/espressif/arduino-esp32/blob/master/libraries/ArduinoOTA/examples/BasicOTA/BasicOTA.ino
-    ArduinoOTA.setPassword("thaal6aiJievee"); // FIXME: move to header
+    ArduinoOTA.setPassword(SECRET_OTA_PASSWORD);
     ArduinoOTA
         .onStart([]()
         {
@@ -386,13 +380,6 @@ void setup() {
 
 int last_dt = 0;
 
-void kp_handle(char key) {
-    keypad_matcher.consume(key);
-    screen.keypadBuffer = keypad_matcher.buffer();
-    if (screen.currentScreen() == Screen::ID::A) {
-        screen.render();
-    }
-}
 
 void loop() {
     //Serial.println("loop");
@@ -433,7 +420,9 @@ void loop() {
     char key = keypad.getKey();
     if (key) {
         Serial.printf("Keypad: %c\n", key);
-        kp_handle(key);
+        keypad_matcher.consume(key);
+        screen.keypadBuffer = keypad_matcher.buffer().c_str();
+        screen.render();
     }
 
     // Handle the ROLL and TIME button

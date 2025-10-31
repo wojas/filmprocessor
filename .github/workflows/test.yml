@@ -7,14 +7,20 @@ on:
   pull_request:
 
 jobs:
-  native-tests:
+  tests:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Prepare secrets header
+        run: cp include/secrets.example.h include/secrets.h
 
       - name: Install PlatformIO
         run: pip install --upgrade platformio
 
       - name: Run native unit tests
         run: pio test -e native
+
+      - name: Build ESP32 firmware
+        run: pio run -e nodemcu-32s
