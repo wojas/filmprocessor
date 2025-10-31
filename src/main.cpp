@@ -12,6 +12,7 @@
 #include "screen.hpp"
 #include "mqtt.hpp"
 #include "logger.hpp"
+#include "input_match.hpp"
 
 #include "motor.h"
 
@@ -119,6 +120,79 @@ byte pin_rows[KP_ROW_NUM] = {15, 2, 0, 4};
 byte pin_column[KP_COLUMN_NUM] = {16, 17, 5, 18};
 Keypad keypad = Keypad(makeKeymap(keys), pin_rows, pin_column, KP_ROW_NUM, KP_COLUMN_NUM);
 
+static InputMatch keypad_matcher;
+
+void reset_timer();
+
+static void init_keypad_routes() {
+    keypad_matcher.match("Annn#", [](const InputMatch::Result& res) {
+        if (res.has_number && res.number < 100) {
+            motor_target_rpm(res.number);
+        }
+    });
+    keypad_matcher.match("Bnnn#", [](const InputMatch::Result& res) {
+        if (!res.has_number) {
+            return;
+        }
+        int value = res.number;
+        if (res.leading_zero && value > 0) {
+            value = -value;
+        }
+        motor_target_progress(value);
+    });
+    keypad_matcher.match("Cnnn#", [](const InputMatch::Result& res) {
+        if (res.has_number) {
+            motor_target_rotation_per_cycle(res.number);
+        }
+    });
+    keypad_matcher.match("Dnnn#", [](const InputMatch::Result& res) {
+        if (res.has_number && res.number <= 255) {
+            motor_target_duty(res.number);
+        }
+    });
+    keypad_matcher.match("#", [](const InputMatch::Result&) {
+        reset_timer();
+    });
+    keypad_matcher.match("0", [](const InputMatch::Result&) {
+        motor_target_duty(0);
+    });
+    keypad_matcher.match("1", [](const InputMatch::Result&) {
+        motor_target_rotation_per_cycle(900);
+        motor_target_progress(50);
+        motor_target_rpm(70);
+    });
+    keypad_matcher.match("2", [](const InputMatch::Result&) {
+        motor_target_rotation_per_cycle(720);
+        motor_target_progress(50);
+        motor_target_rpm(50);
+    });
+    keypad_matcher.match("3", [](const InputMatch::Result&) {
+        motor_target_rotation_per_cycle(360);
+        motor_target_progress(50);
+        motor_target_rpm(25);
+    });
+    keypad_matcher.match("4", [](const InputMatch::Result&) {
+        motor_target_rotation_per_cycle(720);
+        motor_target_progress(50);
+        motor_target_rpm(60);
+    });
+    keypad_matcher.match("5", [](const InputMatch::Result&) {
+        motor_target_rotation_per_cycle(360);
+        motor_target_progress(50);
+        motor_target_rpm(5);
+    });
+    keypad_matcher.match("6", [](const InputMatch::Result&) {
+        motor_target_rotation_per_cycle(360);
+        motor_target_progress(50);
+        motor_target_rpm(10);
+    });
+    keypad_matcher.match("7", [](const InputMatch::Result&) {
+        motor_target_rotation_per_cycle(900);
+        motor_target_progress(50);
+        motor_target_duty(230);
+    });
+}
+
 
 uint32_t start_millis = 0;
 uint32_t prev_time_sec = 0;
@@ -149,6 +223,8 @@ WiFiClient mqttClient;
 void setup() {
     Serial.begin(115200);
     pinMode(LED, OUTPUT);
+
+    init_keypad_routes();
 
     // Setup LCD for early error output
     LOGF("Setting up LCD");
@@ -307,147 +383,8 @@ void setup() {
 int last_dt = 0;
 
 void kp_handle(char key) {
-    // Keypad state
-    static char mode = 0;
-    static uint16_t val = 0;
-    static bool val_zero_start = false;
-    static String buffer;
-    char digit = 0;
-
-    buffer += key;
-
-    switch (mode) {
-    case '*':
-        // Special function on next number
-        if (key == '*') {
-            mode = 0;
-            buffer.clear();
-            break;
-        }
-        mode = 0; // reset mode after one char
-        break;
-
-    case 'A':
-    case 'B':
-    case 'C':
-    case 'D':
-        // In param mode (end with '#' or cancel with '*')
-        if (key == '*') {
-            mode = 0;
-            val = 0;
-            val_zero_start = false;
-            buffer.clear();
-            break;
-        }
-        if (key == '#') {
-            switch (mode) {
-            case 'A':
-                if (val < 100) {
-                    motor_target_rpm(val);
-                }
-                break;
-            case 'B':
-                // Use a leading 0 to indicate a negative value here.
-                if (val_zero_start && val > 0) {
-                    motor_target_progress(-static_cast<int>(val));
-                } else {
-                    motor_target_progress(static_cast<int>(val));
-                }
-                break;
-            case 'C':
-                motor_target_rotation_per_cycle(val);
-                break;
-            case 'D':
-                if (val <= 255) {
-                    motor_target_duty(val);
-                }
-                break;
-            default:
-                break;
-            }
-            mode = 0;
-            val = 0;
-            val_zero_start = false;
-            break;
-        }
-        // Input number
-        digit = key - '0';
-        if (digit >= 0 && digit <= 9) {
-            if (val == 0 && digit == 0 && !val_zero_start) {
-                val_zero_start = true;
-            }
-            val = val * 10 + digit;
-        }
-        break;
-
-    default:
-        {
-            // Normal mode (select program or mode)
-            buffer.clear();
-            buffer += key;
-            switch (key) {
-            // These are the different programs
-            case '0':
-                // This is different from pausing with the ROLL button.
-                motor_target_duty(0);
-                break;
-            case '1':
-                motor_target_rotation_per_cycle(900);
-                motor_target_progress(50);
-                motor_target_rpm(70);
-                break;
-            case '2':
-                motor_target_rotation_per_cycle(720);
-                motor_target_progress(50);
-                motor_target_rpm(50);
-                break;
-            case '3':
-                motor_target_rotation_per_cycle(360);
-                motor_target_progress(50);
-                motor_target_rpm(25);
-                break;
-            case '4':
-                motor_target_rotation_per_cycle(720);
-                motor_target_progress(50);
-                motor_target_rpm(60);
-                break;
-            case '5':
-                motor_target_rotation_per_cycle(360);
-                motor_target_progress(50);
-                motor_target_rpm(5);
-                break;
-            case '6':
-                motor_target_rotation_per_cycle(360);
-                motor_target_progress(50);
-                motor_target_rpm(10);
-                break;
-            case '7':
-                motor_target_rotation_per_cycle(900);
-                motor_target_progress(50);
-                motor_target_duty(230);
-                break;
-            case '#':
-                // Reset timer
-                reset_timer();
-                break;
-            case 'A':
-            case 'B':
-            case 'C':
-            case 'D':
-            case '*':
-                mode = key;
-                val = 0;
-                val_zero_start = false;
-                break;
-            default:
-                mode = 0;
-                val = 0;
-                val_zero_start = false;
-                break;
-            }
-        }
-    }
-    screen.keypadBuffer = buffer;
+    keypad_matcher.consume(key);
+    screen.keypadBuffer = keypad_matcher.buffer();
     if (screen.currentScreen() == Screen::ID::A) {
         screen.render();
     }
