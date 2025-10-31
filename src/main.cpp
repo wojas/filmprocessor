@@ -119,12 +119,18 @@ void reset_timer();
 
 // init_keypad_routes defines handlers for different keypad input patterns
 static void init_keypad_routes() {
-    keypad_matcher.match("Annn#", [](const InputMatch::Result& res) {
+    keypad_matcher.match("A", [](const InputMatch::Result& res) {
+        screen.setScreen(Screen::ID::A);
+    });
+    keypad_matcher.match("B", [](const InputMatch::Result& res) {
+        screen.setScreen(Screen::ID::B);
+    });
+    keypad_matcher.match("*Annn#", [](const InputMatch::Result& res) {
         if (res.has_number && res.number < 100) {
             motor_target_rpm(res.number);
         }
     });
-    keypad_matcher.match("Bnnn#", [](const InputMatch::Result& res) {
+    keypad_matcher.match("*Bnnn#", [](const InputMatch::Result& res) {
         if (!res.has_number) {
             return;
         }
@@ -134,12 +140,12 @@ static void init_keypad_routes() {
         }
         motor_target_progress(value);
     });
-    keypad_matcher.match("Cnnn#", [](const InputMatch::Result& res) {
+    keypad_matcher.match("*Cnnn#", [](const InputMatch::Result& res) {
         if (res.has_number) {
             motor_target_rotation_per_cycle(res.number);
         }
     });
-    keypad_matcher.match("Dnnn#", [](const InputMatch::Result& res) {
+    keypad_matcher.match("*Dnnn#", [](const InputMatch::Result& res) {
         if (res.has_number && res.number <= 255) {
             motor_target_duty(res.number);
         }
