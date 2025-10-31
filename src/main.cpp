@@ -305,7 +305,7 @@ void setup() {
     MQTT::subscribe("letsroll/reboot");
 
     // https://github.com/espressif/arduino-esp32/blob/master/libraries/ArduinoOTA/examples/BasicOTA/BasicOTA.ino
-    ArduinoOTA.setPassword("thaal6aiJievee"); // FIXME: move to header
+    ArduinoOTA.setPassword(SECRET_OTA_PASSWORD);
     ArduinoOTA
         .onStart([]()
         {
