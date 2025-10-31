@@ -381,7 +381,7 @@ int last_dt = 0;
 
 void kp_handle(char key) {
     keypad_matcher.consume(key);
-    screen.keypadBuffer = keypad_matcher.buffer();
+    screen.keypadBuffer = keypad_matcher.buffer().c_str();
     if (screen.currentScreen() == Screen::ID::A) {
         screen.render();
     }
