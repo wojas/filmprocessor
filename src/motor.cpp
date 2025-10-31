@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <Wire.h>
+#include <algorithm>
 #include "driver/pcnt.h"
 
 #include "logger.hpp"
@@ -133,12 +134,32 @@ volatile int task_not_delayed_count = 0;
 volatile int target_duty = 0;
 volatile int target_rpm = 0;
 volatile int target_rotation_per_cycle = 0; // in degrees; forever if 0
+volatile int target_progress = 0; // net degrees advanced per full cycle
 volatile int target_rotation = 0; // in degrees
 volatile bool target_pause = true;
 
 volatile int last_rpm = 0;
 volatile uint32_t last_rpm_millis = 0;
 volatile int last_duty = 0;
+
+static int rotation_delta_for_direction(int dir) {
+    // Split progress across the two strokes in a cycle so alternating directions remain
+    // possible while the net forward+reverse pair still advances by target_progress degrees.
+    // Integer division gives the shared half; the remainder is applied to the forward leg.
+    const int base = target_rotation_per_cycle;
+    if (base <= 0) {
+        return 0;
+    }
+    const int progress = target_progress;
+    const int half = progress / 2;
+    const int remainder = progress % 2;
+    const int extra = dir > 0 ? (half + remainder) : (-half);
+    int delta = base + extra;
+    if (delta < 0) {
+        delta = 0;
+    }
+    return delta;
+}
 
 // States in typical chronological order.
 // Allowed transitions:
@@ -174,11 +195,11 @@ const char* state_name(State st) {
 
 void motor_dump_status() {
     LOGF("motor_dump_status: %s direction=%d last=D:%d/RPM:%d "
-         "total_count=%d/%d/%d/%d target=D:%d/RPM:%d/RPC:%d/ROT:%d/DIR:%d rotation=%d",
+         "total_count=%d/%d/%d/%d target=D:%d/RPM:%d/RPC:%d/PROG:%d/ROT:%d/DIR:%d rotation=%d",
          state_name(state),
          direction, last_duty, last_rpm,
          total_count, total_count_abs, total_count_fw, total_count_bw,
-         target_duty, target_rpm, target_rotation_per_cycle, target_rotation,
+         target_duty, target_rpm, target_rotation_per_cycle, target_progress, target_rotation,
          target_direction,
          motor_calc_rotation_degrees(total_count)
     );
@@ -247,9 +268,28 @@ void motor_target_rpm_paused(const int rpm) {
 
 void motor_target_rotation_per_cycle(int rot) {
     target_rotation_per_cycle = rot;
-    target_rotation =
-        motor_calc_rotation_degrees(total_count)
-        + direction * target_rotation_per_cycle;
+    const int dir = (target_direction != 0) ? target_direction : (direction >= 0 ? 1 : -1);
+    const int32_t current = motor_calc_rotation_degrees(total_count);
+    if (target_rotation_per_cycle <= 0) {
+        target_rotation = current;
+        return;
+    }
+    const int delta = rotation_delta_for_direction(dir);
+    target_rotation = current + dir * delta;
+}
+
+void motor_target_progress(int progress) {
+    target_progress = progress;
+    if (target_rotation_per_cycle <= 0) {
+        return;
+    }
+    int dir = target_direction;
+    if (dir == 0) {
+        dir = direction >= 0 ? 1 : -1;
+    }
+    const int32_t current = motor_calc_rotation_degrees(total_count);
+    const int delta = rotation_delta_for_direction(dir);
+    target_rotation = current + dir * delta;
 }
 
 void motor_flush_direction() {
@@ -275,16 +315,17 @@ void _flush_stats(unsigned long msec, bool flushOnly = false) {
     if (offset == 0) {
         // Write CSV header. This will only happen once, as we reuse it.
         header_size = snprintf(buf + offset, sizeof(buf) - offset,
-            "#ts,t_rpm,t_duty,t_rpc,t_rot,t_dir,tot,tot_abs,tot_fw,tot_bw,paused,state,dir,rot,duty,rpm\n");
+            "#ts,t_rpm,t_duty,t_rpc,t_prog,t_rot,t_dir,tot,tot_abs,tot_fw,tot_bw,paused,state,dir,rot,duty,rpm\n");
         offset += header_size;
     }
 
     offset += snprintf(buf + offset, sizeof(buf) - offset,
-        "%lu,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%d,%d,%d,%d\n",
+        "%lu,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%d,%d,%d,%d\n",
         msec,
         target_rpm,
         target_duty,
         target_rotation_per_cycle,
+        target_progress,
         target_rotation,
         target_direction,
         total_count,
@@ -475,14 +516,16 @@ void motor_monitor_task(void* params) {
                     int32_t total_rotation = motor_calc_rotation_degrees(total_count);
                     // The direction matters here. Here it ensures we compare in the right direction.
                     if ((direction * total_rotation) >= (direction * target_rotation)) {
-                        // Reverse and determine the next target rotation
-                        target_rotation += (-direction) * target_rotation_per_cycle;
-                        target_direction *= -1;
+                        const int next_direction = -direction;
+                        const int delta = rotation_delta_for_direction(next_direction);
+                        target_direction = next_direction;
+                        target_rotation = total_rotation + next_direction * delta;
 
-                        LOGF("reverse next target_direction=%d rotation=%d target_rotation=%d",
+                        LOGF("reverse next target_direction=%d rotation=%d target_rotation=%d delta=%d",
                              target_direction,
                              total_rotation,
-                             target_rotation
+                             target_rotation,
+                             delta
                         );
 
                         // Remember the current duty level for the next cycle
@@ -492,7 +535,7 @@ void motor_monitor_task(void* params) {
 
                         // Start slowing down in this cycle
                         if (last_duty > 2*MOTOR_ADJUST_LIMIT) {
-                            _apply_duty(max(0, last_duty - MOTOR_ADJUST_LIMIT));
+                            _apply_duty(std::max(0, last_duty - MOTOR_ADJUST_LIMIT));
                         }
 
                         _transition(State::RampDown);

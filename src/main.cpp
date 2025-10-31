@@ -85,6 +85,13 @@ void mqtt_callback(const char* topic, const byte* payload, unsigned int length) 
             motor_target_rotation_per_cycle(val);
             break;
         }
+    case 'G':
+        {
+            // Set progress per cycle
+            int val = s.substring(1).toInt();
+            motor_target_progress(val);
+            break;
+        }
     case 'P':
         {
             // Pause the motor
@@ -288,6 +295,7 @@ void setup() {
 
     // Default on startup after future unpause
     motor_target_rotation_per_cycle(720);
+    motor_target_progress(50);
     motor_target_rpm(10);
     motor_init();
 
@@ -337,6 +345,7 @@ void kp_handle(char key) {
                 }
                 break;
             case 'B':
+                motor_target_progress(val);
                 break;
             case 'C':
                 motor_target_rotation_per_cycle(val);
@@ -372,22 +381,39 @@ void kp_handle(char key) {
                 motor_target_duty(0);
                 break;
             case '1':
-                motor_target_rpm(50);
+                motor_target_rotation_per_cycle(900);
+                motor_target_progress(50);
+                motor_target_rpm(70);
                 break;
             case '2':
-                motor_target_rpm(60);
+                motor_target_rotation_per_cycle(720);
+                motor_target_progress(50);
+                motor_target_rpm(50);
                 break;
             case '3':
+                motor_target_rotation_per_cycle(360);
+                motor_target_progress(50);
                 motor_target_rpm(25);
                 break;
+            case '4':
+                motor_target_rotation_per_cycle(720);
+                motor_target_progress(50);
+                motor_target_rpm(60);
+                break;
             case '5':
+                motor_target_rotation_per_cycle(360);
+                motor_target_progress(50);
                 motor_target_rpm(5);
                 break;
             case '6':
+                motor_target_rotation_per_cycle(360);
+                motor_target_progress(50);
                 motor_target_rpm(10);
                 break;
             case '7':
-                motor_target_duty(255);
+                motor_target_rotation_per_cycle(900);
+                motor_target_progress(50);
+                motor_target_duty(230);
                 break;
             case '#':
                 // Reset timer
