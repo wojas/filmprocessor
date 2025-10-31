@@ -12,6 +12,7 @@ public:
         C,
         D,
         Boot,
+        Error,
         OTA,
     };
 
@@ -46,6 +47,10 @@ public:
     String bootStatus;
     String bootInfo;
 
+    // Screen Error data
+    String errorStatus;
+    String errorInfo;
+
     // Screen OTA data
     String otaHeadline;
     uint16_t otaPercent = 0;
@@ -56,6 +61,7 @@ private:
     void renderScreenC();
     void renderScreenD();
     void renderScreenBoot();
+    void renderScreenError();
     void renderScreenOTA();
 
     void prepareBuffers();

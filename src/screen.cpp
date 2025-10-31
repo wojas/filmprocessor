@@ -83,6 +83,9 @@ void Screen::render() {
     case ID::Boot:
         renderScreenBoot();
         break;
+    case ID::Error:
+        renderScreenError();
+        break;
     case ID::OTA:
         renderScreenOTA();
         break;
@@ -145,6 +148,11 @@ void Screen::renderScreenD() {
 void Screen::renderScreenBoot() {
     writeText(0, 0, bootStatus);
     writeText(1, 0, bootInfo);
+}
+
+void Screen::renderScreenError() {
+    writeText(0, 0, errorStatus);
+    writeText(1, 0, errorInfo);
 }
 
 void Screen::renderScreenOTA() {
