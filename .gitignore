@@ -4,3 +4,4 @@ secrets.h
 platformio.local.ini
 .env
 tmp
+*.log

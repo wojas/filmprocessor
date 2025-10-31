@@ -337,7 +337,7 @@ void _flush_stats(unsigned long msec, bool flushOnly = false) {
         header_size = snprintf(buf + offset, sizeof(buf) - offset,
             "#ts,t_rpm,t_duty,t_rpc,t_prog,t_rot,t_dir,tot,tot_abs,tot_fw,tot_bw,"
             "paused,state,dir,rot,duty,rpm,"
-            "i_accum,err,state_ms,cycle,last_cycle,prev_cycle,stroke_fwd,stroke_rev\n");
+            "i_accum,err,state_ms,cycle,last_cycle\n");
         offset += header_size;
     }
 
@@ -346,7 +346,7 @@ void _flush_stats(unsigned long msec, bool flushOnly = false) {
     const uint32_t cycle_elapsed = cycle_start_millis ? (stamp - cycle_start_millis) : 0;
 
     offset += snprintf(buf + offset, sizeof(buf) - offset,
-        "%lu,%d,%d,%d,%d,%d,%d,%ld,%lu,%lu,%lu,%d,%s,%d,%d,%d,%d,%d,%d,%lu,%lu,%lu,%d,%d\n",
+        "%lu,%d,%d,%d,%d,%d,%d,%ld,%lu,%lu,%lu,%d,%s,%d,%d,%d,%d,%d,%d,%lu,%lu,%lu\n",
         msec,
         target_rpm,
         target_duty,
@@ -368,10 +368,7 @@ void _flush_stats(unsigned long msec, bool flushOnly = false) {
         pid_error,
         static_cast<unsigned long>(state_age),
         static_cast<unsigned long>(cycle_elapsed),
-        static_cast<unsigned long>(last_cycle_duration_ms),
-        static_cast<unsigned long>(prev_cycle_duration_ms),
-        last_forward_degrees,
-        last_backward_degrees);
+        static_cast<unsigned long>(last_cycle_duration_ms));
 }
 
 void _transition(const State newState) {
