@@ -55,6 +55,9 @@ public:
     String otaHeadline;
     uint16_t otaPercent = 0;
 
+    // Pagination
+    int page = 0;
+
 private:
     void renderScreenA();
     void renderScreenB();
@@ -79,6 +82,10 @@ private:
     bool initialized;
     String lineBuffer[2];
     static constexpr size_t screenStackCapacity = 8;
-    std::array<ID, screenStackCapacity> screenStack;
+    struct ScreenState {
+        ID id;
+        int page;
+    };
+    std::array<ScreenState, screenStackCapacity> screenStack;
     size_t screenStackSize;
 };

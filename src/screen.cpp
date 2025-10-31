@@ -31,10 +31,13 @@ bool Screen::begin() {
 }
 
 void Screen::setScreen(ID id) {
-    if (screen == id) {
-        return;
+    bool sameScreen = (screen == id);
+    if (sameScreen) {
+        ++page;
+    } else {
+        screen = id;
+        page = 0;
     }
-    screen = id;
     if (!initialized) {
         return;
     }
@@ -48,7 +51,7 @@ void Screen::pushScreen(ID id) {
         }
         screenStackSize = screenStackCapacity - 1;
     }
-    screenStack[screenStackSize++] = screen;
+    screenStack[screenStackSize++] = ScreenState{screen, page};
     setScreen(id);
 }
 
@@ -56,8 +59,12 @@ bool Screen::popScreen() {
     if (screenStackSize == 0) {
         return false;
     }
-    ID previous = screenStack[--screenStackSize];
-    setScreen(previous);
+    ScreenState previous = screenStack[--screenStackSize];
+    screen = previous.id;
+    page = previous.page;
+    if (initialized) {
+        lcd.clear();
+    }
     return true;
 }
 
