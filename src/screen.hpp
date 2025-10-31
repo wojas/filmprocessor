@@ -1,7 +1,12 @@
 #pragma once
 
+#ifdef ARDUINO
 #include <Arduino.h>
 #include <LiquidCrystal_I2C.h>
+#else
+#include "Arduino.h"
+#endif
+
 #include <array>
 
 class Screen {
@@ -20,18 +25,11 @@ public:
 
     bool begin();
     void setScreen(ID id);
-    /**
-     * Pushes the current screen onto the stack and switches to the requested one.
-     */
     void pushScreen(ID id);
-    /**
-     * Restores the previously active screen, if any.
-     *
-     * @return true when a previous screen was restored, false if the stack was empty.
-     */
     bool popScreen();
     ID currentScreen() const { return screen; }
     void render();
+    const String& bufferRow(int row) const { return lineBuffer[row]; }
 
     // Screen A data
     bool paused = true;
@@ -76,7 +74,9 @@ private:
     char progressChar(int idx) const;
     void ensureCustomChars();
 
+#ifdef ARDUINO
     LiquidCrystal_I2C lcd;
+#endif
     ID screen;
     bool customCharsLoaded;
     bool initialized;
