@@ -322,7 +322,7 @@ void _flush_stats(unsigned long msec, bool flushOnly = false) {
     static size_t offset = 0;
     static size_t header_size = 0;
 
-    if ( (flushOnly && offset <= header_size) || (sizeof(buf) - offset < 120) ) {
+    if ( (flushOnly && offset <= header_size) || (sizeof(buf) - offset < 200) ) {
         // Flush to MQTT (this copies the data)
         MQTT::publishAsync("letsroll/motor/csv", reinterpret_cast<const uint8_t*>(buf), offset);
         // Keep the header, but overwrite data
@@ -335,12 +335,18 @@ void _flush_stats(unsigned long msec, bool flushOnly = false) {
     if (offset == 0) {
         // Write CSV header. This will only happen once, as we reuse it.
         header_size = snprintf(buf + offset, sizeof(buf) - offset,
-            "#ts,t_rpm,t_duty,t_rpc,t_prog,t_rot,t_dir,tot,tot_abs,tot_fw,tot_bw,paused,state,dir,rot,duty,rpm\n");
+            "#ts,t_rpm,t_duty,t_rpc,t_prog,t_rot,t_dir,tot,tot_abs,tot_fw,tot_bw,"
+            "paused,state,dir,rot,duty,rpm,"
+            "i_accum,err,state_ms,cycle,last_cycle,prev_cycle,stroke_fwd,stroke_rev\n");
         offset += header_size;
     }
 
+    const uint32_t stamp = static_cast<uint32_t>(msec);
+    const uint32_t state_age = stamp - state_change_millis;
+    const uint32_t cycle_elapsed = cycle_start_millis ? (stamp - cycle_start_millis) : 0;
+
     offset += snprintf(buf + offset, sizeof(buf) - offset,
-        "%lu,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%d,%d,%d,%d\n",
+        "%lu,%d,%d,%d,%d,%d,%d,%ld,%lu,%lu,%lu,%d,%s,%d,%d,%d,%d,%d,%d,%lu,%lu,%lu,%d,%d\n",
         msec,
         target_rpm,
         target_duty,
@@ -348,16 +354,24 @@ void _flush_stats(unsigned long msec, bool flushOnly = false) {
         target_progress,
         target_rotation,
         target_direction,
-        total_count,
-        total_count_abs,
-        total_count_fw,
-        total_count_bw,
-        target_pause,
+        static_cast<long>(total_count),
+        static_cast<unsigned long>(total_count_abs),
+        static_cast<unsigned long>(total_count_fw),
+        static_cast<unsigned long>(total_count_bw),
+        target_pause ? 1 : 0,
         state_name(state),
         direction,
         motor_calc_rotation_degrees(total_count),
         last_duty,
-        last_rpm);
+        last_rpm,
+        pid_integral,
+        pid_error,
+        static_cast<unsigned long>(state_age),
+        static_cast<unsigned long>(cycle_elapsed),
+        static_cast<unsigned long>(last_cycle_duration_ms),
+        static_cast<unsigned long>(prev_cycle_duration_ms),
+        last_forward_degrees,
+        last_backward_degrees);
 }
 
 void _transition(const State newState) {
