@@ -51,20 +51,21 @@ void setUp() {}
 
 void tearDown() {}
 
-#ifdef ARDUINO
-void setup() {
+static int run() {
     UNITY_BEGIN();
     RUN_TEST(test_boot_screen_renders_without_hardware);
     RUN_TEST(test_screen_a_formats_basic_state);
-    UNITY_END();
+    return UNITY_END();
+}
+
+#ifdef ARDUINO
+void setup() {
+    (void)run();
 }
 
 void loop() {}
 #else
 int main() {
-    UNITY_BEGIN();
-    RUN_TEST(test_boot_screen_renders_without_hardware);
-    RUN_TEST(test_screen_a_formats_basic_state);
-    return UNITY_END();
+    return run();
 }
 #endif
