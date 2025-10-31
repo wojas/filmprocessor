@@ -228,12 +228,12 @@ void Screen::renderScreenB() {
     switch (page_index) {
     case 0: {
         // Page 0: live control loop snapshot (RPM vs target, duty, PID state).
-        std::snprintf(row0, sizeof(row0), "R%3d/%3dD%3dS%c",
+        std::snprintf(row0, sizeof(row0), "R%3d/%3d D%3d S%c",
             clamp_to_range(rpm, -999, 999),
             clamp_to_range(targetRpm, -999, 999),
             clamp_to_range(duty, 0, 999),
             state_symbol(motorState));
-        std::snprintf(row1, sizeof(row1), "I%+03dRT%03dPG%+03d",
+        std::snprintf(row1, sizeof(row1), "I%+03d R%03d P%+03d",
             clamp_to_range(pidIntegral, -99, 99),
             clamp_to_range(targetRotation, 0, 999),
             clamp_to_range(targetProgress, -99, 999));
@@ -245,10 +245,10 @@ void Screen::renderScreenB() {
         // Page 1: encoder totals, direction and control-loop error history.
         char count_buffer[8];
         format_count(count_buffer, sizeof(count_buffer), totalCount);
-        std::snprintf(row0, sizeof(row0), "CNT%sDIR%c",
+        std::snprintf(row0, sizeof(row0), "CNT%s DIR%c",
             count_buffer,
             direction_symbol(totalDirection));
-        std::snprintf(row1, sizeof(row1), "AGE%04uERR%+03d",
+        std::snprintf(row1, sizeof(row1), "AGE%04u ERR%+03d",
             static_cast<unsigned>(std::min<uint32_t>(stateAgeMs, static_cast<uint32_t>(9999))),
             clamp_to_range(pidError, -99, 99));
         writeText(0, 0, String(row0));
@@ -261,10 +261,10 @@ void Screen::renderScreenB() {
         char prev_buffer[8];
         format_duration(last_buffer, sizeof(last_buffer), lastCycleMs);
         format_duration(prev_buffer, sizeof(prev_buffer), prevCycleMs);
-        std::snprintf(row0, sizeof(row0), "C%sP%s",
+        std::snprintf(row0, sizeof(row0), "C%s P%s",
             last_buffer,
             prev_buffer);
-        std::snprintf(row1, sizeof(row1), "FW%03dBK%+04d",
+        std::snprintf(row1, sizeof(row1), "FW%03d BK%+04d",
             clamp_to_range(lastForwardDegrees, 0, 999),
             clamp_to_range(-lastBackwardDegrees, -999, 0));
         writeText(0, 0, String(row0));

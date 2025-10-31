@@ -38,9 +38,10 @@ operator reselects `B`.
 
 ### Page 0 – Control Loop Snapshot
 
+
 ```
-R070/080D180S>
-I+05RT720PG+50
+R070/080 D180 S>
+I+05 R720 P+50
 ```
 
 | Field   | Example | Meaning                                                       |
@@ -50,14 +51,14 @@ I+05RT720PG+50
 | `D180`  | `180`   | PWM duty (0–255).                                             |
 | `S>`    | `>`     | Motor state glyph (`I` idle, `^` ramp up, `>` run, `v` down). |
 | `I+05`  | `+05`   | PID integral accumulator (±99).                               |
-| `RT720` | `720`   | Rotation per stroke target in degrees.                        |
-| `PG+50` | `+50`   | Net progress per cycle in degrees.                            |
+| `R720`  | `720`   | Rotation per stroke target in degrees.                        |
+| `P+50`  | `+50`   | Net progress per cycle in degrees (signed).                   |
 
 ### Page 1 – Encoder & State Health
 
 ```
-CNT+12.3kDIR>
-AGE0123ERR-04
+CNT+12.3k DIR>
+AGE0123 ERR-04
 ```
 
 | Field        | Example  | Meaning                                                           |
@@ -70,8 +71,8 @@ AGE0123ERR-04
 ### Page 2 – Cycle History
 
 ```
-C12.4sP09.8s
-FW360BK-320
+C12.4s P09.8s
+FW360 BK-320
 ```
 
 | Field       | Example  | Meaning                                                                    |
@@ -145,4 +146,3 @@ push their ID so the previous screen is restored automatically once the
 task completes. Pagination (`page`) resets when switching to a different
 ID and increments when the same screen is selected repeatedly (e.g.,
 tapping Screen `B` cycles through diagnostic pages).
-

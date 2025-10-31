@@ -105,4 +105,3 @@ to halt or reset once finished.
   (reverse bias) let you fine-tune without changing presets.
 - When experimenting with duty (`Dnnn#`), monitor Screen `B` page 1 for
   RPM error to see how far you are slipping from the target.
-
