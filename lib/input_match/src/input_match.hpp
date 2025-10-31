@@ -1,7 +1,5 @@
 #pragma once
 
-#include <Arduino.h>
-
 #include <functional>
 #include <string>
 #include <vector>
@@ -34,9 +32,9 @@ public:
      */
     void clear();
     /**
-     * Returns the buffered input as an Arduino String.
+     * Returns the buffered input as a std::string.
      */
-    String buffer() const;
+    std::string buffer() const;
 
 private:
     /** Internal representation of a compiled pattern. */

@@ -55,8 +55,8 @@ void InputMatch::clear() {
     buffer_.clear();
 }
 
-String InputMatch::buffer() const {
-    return String(buffer_.c_str());
+std::string InputMatch::buffer() const {
+    return buffer_;
 }
 
 bool InputMatch::is_digit(char c) {
