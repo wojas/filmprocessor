@@ -40,18 +40,18 @@ public:
     uint32_t elapsedSeconds = 0;
     uint32_t previousCycleSeconds = 0;
     String keypadBuffer;
-    int targetRotation = 0;
-    int targetProgress = 0;
-    int pidIntegral = 0;
-    int pidError = 0;
-    int32_t totalCount = 0;
-    int totalDirection = 1;
-    int motorState = 0;
-    uint32_t stateAgeMs = 0;
-    uint32_t lastCycleMs = 0;
-    uint32_t prevCycleMs = 0;
-    int lastForwardDegrees = 0;
-    int lastBackwardDegrees = 0;
+    int targetRotation = 0;        // target rotation per stroke (deg)
+    int targetProgress = 0;        // delta degrees applied for net progress
+    int pidIntegral = 0;           // integral accumulator for duty loop
+    int pidError = 0;              // instantaneous RPM error
+    int32_t totalCount = 0;        // signed encoder pulse count
+    int totalDirection = 1;        // current direction (+/- 1)
+    int motorState = 0;            // state machine id for Screen B glyphs
+    uint32_t stateAgeMs = 0;       // time spent in current state
+    uint32_t lastCycleMs = 0;      // duration of the most recent full cycle
+    uint32_t prevCycleMs = 0;      // duration of the previous cycle
+    int lastForwardDegrees = 0;    // forward stroke degrees in last cycle
+    int lastBackwardDegrees = 0;   // reverse stroke degrees (absolute value)
 
     // Screen Boot data
     String bootStatus;

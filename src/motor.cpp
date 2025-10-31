@@ -93,12 +93,15 @@ volatile uint32_t prev_cycle_duration_ms = 0;
 volatile int last_forward_degrees = 0;
 volatile int last_backward_degrees = 0;
 
+// Remember the start timestamp and rotation of the current stroke so we
+// can measure stroke distance and cycle timing without blocking the loop.
 void _start_new_stroke() {
     const uint32_t now = millis();
     stroke_start_millis = now;
     stroke_start_rotation = motor_calc_rotation_degrees(total_count);
     stroke_direction = direction >= 0 ? 1 : -1;
     if (stroke_direction > 0) {
+        // Forward stroke marks the beginning of a full cycle.
         cycle_start_millis = now;
     }
 }

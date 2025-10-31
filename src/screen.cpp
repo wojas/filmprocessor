@@ -13,6 +13,8 @@ static uint8_t progress_char_base[16] = {
 
 namespace {
 
+// Convert the motor state id into a compact single-character glyph so the
+// diagnostics view can show it alongside other numbers.
 char state_symbol(int state) {
     switch (state) {
     case 0:
@@ -30,14 +32,19 @@ char state_symbol(int state) {
     }
 }
 
+// Small helper so we can quickly mirror the direction on Screen B.
 char direction_symbol(int direction) {
     return direction >= 0 ? '>' : '<';
 }
 
+// Clamp a value into a printable range without introducing std::clamp
+// dependencies in the header.
 int clamp_to_range(int value, int min, int max) {
     return std::min(std::max(value, min), max);
 }
 
+// Render the signed pulse counter with either raw counts or a scaled
+// k-suffix once the value grows beyond 5 digits (fits 7 chars total).
 void format_count(char* dest, size_t len, int32_t count) {
     const char sign = count >= 0 ? '+' : '-';
     uint32_t magnitude = static_cast<uint32_t>(std::abs(count));
@@ -55,6 +62,8 @@ void format_count(char* dest, size_t len, int32_t count) {
     }
 }
 
+// Turn milliseconds into a fixed-width seconds.tenths value (xx.xs) so
+// the row stays aligned while still showing some fractional detail.
 void format_duration(char* dest, size_t len, uint32_t ms) {
     uint32_t tenths = (ms + 50) / 100; // round to nearest 0.1 second
     uint32_t seconds = tenths / 10;
@@ -210,13 +219,15 @@ void Screen::renderScreenA() {
 }
 
 void Screen::renderScreenB() {
+    // Diagnostics screen cycles through sub-pages to expose more metrics
+    // than fit on a single 16x2 LCD row.
     const int page_index = page % 3;
     char row0[17];
     char row1[17];
 
     switch (page_index) {
     case 0: {
-        // Page 0: control loop snapshot (RPM, duty, integral, targets, state)
+        // Page 0: live control loop snapshot (RPM vs target, duty, PID state).
         std::snprintf(row0, sizeof(row0), "R%3d/%3dD%3dS%c",
             clamp_to_range(rpm, -999, 999),
             clamp_to_range(targetRpm, -999, 999),
@@ -231,7 +242,7 @@ void Screen::renderScreenB() {
         break;
     }
     case 1: {
-        // Page 1: pulse counter totals, direction, state age, RPM error
+        // Page 1: encoder totals, direction and control-loop error history.
         char count_buffer[8];
         format_count(count_buffer, sizeof(count_buffer), totalCount);
         std::snprintf(row0, sizeof(row0), "CNT%sDIR%c",
@@ -245,7 +256,7 @@ void Screen::renderScreenB() {
         break;
     }
     case 2: {
-        // Page 2: recent cycle durations and stroke advances
+        // Page 2: recent cycle timing plus forward/backward stroke advances.
         char last_buffer[8];
         char prev_buffer[8];
         format_duration(last_buffer, sizeof(last_buffer), lastCycleMs);

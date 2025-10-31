@@ -410,6 +410,7 @@ void loop() {
         screen.duty = motor_duty();
         screen.paused = motor_is_paused();
         screen.progressDegrees = static_cast<int>(motor_position_degrees());
+        // Feed Screen B's diagnostics pages with live motor metrics.
         screen.targetRotation = motor_get_target_rotation_per_cycle();
         screen.targetProgress = motor_get_target_progress();
         screen.pidIntegral = motor_pid_integral();
