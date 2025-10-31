@@ -9,9 +9,9 @@
 #include <Keypad.h>
 #include <Pushbutton.h>
 
-#include "screen.hpp"
 #include "mqtt.hpp"
 #include "logger.hpp"
+#include "screen.hpp"
 #include "input_match.hpp"
 
 #include "motor.h"
@@ -322,7 +322,9 @@ void setup() {
 
             // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
             LOGF("[OTA] Start updating %s", type.c_str());
-            screen.otaHeadline = "Update " + type;
+            String headline = "Update ";
+            headline += type;
+            screen.otaHeadline = headline;
             screen.otaPercent = 0;
             screen.pushScreen(Screen::ID::OTA);
             screen.render();
@@ -360,7 +362,9 @@ void setup() {
                 err = "End Failed";
             }
             LOGF("[OTA] Error %u: %s", error, err);
-            screen.errorStatus = String("OTA err ") + error;
+            String status = "OTA err ";
+            status += String(error);
+            screen.errorStatus = status;
             screen.errorInfo = err;
             screen.setScreen(Screen::ID::Error);
             screen.render();
@@ -384,7 +388,7 @@ int last_dt = 0;
 
 void kp_handle(char key) {
     keypad_matcher.consume(key);
-    screen.keypadBuffer = keypad_matcher.buffer().c_str();
+    screen.keypadBuffer = keypad_matcher.buffer();
     if (screen.currentScreen() == Screen::ID::A) {
         screen.render();
     }

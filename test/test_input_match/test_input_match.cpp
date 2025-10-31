@@ -66,24 +66,23 @@ void setUp() {}
 
 void tearDown() {}
 
-#ifdef ARDUINO
-void setup() {
-    UNITY_BEGIN();
-    RUN_TEST(test_literal_match);
-    RUN_TEST(test_numeric_capture_and_leading_zero);
-    RUN_TEST(test_buffer_reset_with_star);
-    RUN_TEST(test_star_literal_pattern);
-    UNITY_END();
-}
-
-void loop() {}
-#else
-int main() {
+static int run() {
     UNITY_BEGIN();
     RUN_TEST(test_literal_match);
     RUN_TEST(test_numeric_capture_and_leading_zero);
     RUN_TEST(test_buffer_reset_with_star);
     RUN_TEST(test_star_literal_pattern);
     return UNITY_END();
+}
+
+#ifdef ARDUINO
+void setup() {
+    (void)run();
+}
+
+void loop() {}
+#else
+int main() {
+    return run();
 }
 #endif
