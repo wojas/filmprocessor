@@ -133,10 +133,10 @@ Date:2024-03-18
 Time:12:34:56
 ```
 
-| Field            | Example      | Meaning                                                     |
-|------------------|--------------|-------------------------------------------------------------|
-| `Date:2024-03-18`| `2024-03-18` | Commit date extracted from the git metadata (ISO format).   |
-| `Time:12:34:56`  | `12:34:56`   | Commit time (UTC offset trimmed to fit the display window). |
+| Field              | Example      | Meaning                                                     |
+|--------------------|--------------|-------------------------------------------------------------|
+| `Date: 2024-03-18` | `2024-03-18` | Commit date extracted from the git metadata (ISO format).   |
+| `Time: 12:34:56`   | `12:34:56`   | Commit time (UTC offset trimmed to fit the display window). |
 
 ---
 
