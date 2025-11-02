@@ -31,6 +31,7 @@
 - Keep subject lines in imperative mood, list hardware impacts in the body, and link related issues or TODOs.
 - For pull requests, describe the test matrix (USB, OTA, bench runs), include photos or logs when behavior changes, and call out config prerequisites.
 - Limit every commit message line to 72 characters and escape newlines properly when invoking `git commit` via the shell.
+- Limit every commit message line to 72 characters, and when invoking `git commit` avoid any `\n` escapes. Pass each paragraph as its own `-m` flag so line wrapping stays explicit.
 
 ## Configuration & Security Notes
 - Never commit populated `include/secrets.h` or `platformio.local.ini`; share sample values through the provided `*.example` files instead.
