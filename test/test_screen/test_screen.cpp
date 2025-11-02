@@ -74,8 +74,8 @@ static void test_screen_d_pages_cycle() {
     row1 = screen.bufferRow(1).c_str();
     row0.resize(16, ' ');
     row1.resize(16, ' ');
-    TEST_ASSERT_EQUAL_STRING_LEN("MQTT:broker.lab ", row0.c_str(), 16);
-    TEST_ASSERT_EQUAL_STRING_LEN("Connected       ", row1.c_str(), 16);
+    TEST_ASSERT_EQUAL_STRING_LEN("MQTT:Connected  ", row0.c_str(), 16);
+    TEST_ASSERT_EQUAL_STRING_LEN("broker.lab      ", row1.c_str(), 16);
 
     screen.setScreen(Screen::ID::D); // advance to page 2
     screen.render();

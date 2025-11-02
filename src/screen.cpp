@@ -309,8 +309,8 @@ void Screen::renderScreenD() {
             host = host.substring(0, 11);
         }
         const char* status = mqttConnected ? "Connected" : "Disconnected";
-        std::snprintf(row0, sizeof(row0), "MQTT:%-11s", host.c_str());
-        std::snprintf(row1, sizeof(row1), "%-16s", status);
+        std::snprintf(row0, sizeof(row0), "MQTT:%-11s", status);
+        std::snprintf(row1, sizeof(row1), "%-16s", host.c_str());
         writeText(0, 0, String(row0));
         writeText(1, 0, String(row1));
         break;

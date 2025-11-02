@@ -105,14 +105,14 @@ WiFi:StudioAP
 ### Page 1 – MQTT Broker
 
 ```
-MQTT:broker.lab
-Connected
+MQTT:Connected
+broker.lab
 ```
 
 | Field             | Example       | Meaning                                            |
 |-------------------|---------------|----------------------------------------------------|
-| `MQTT:broker.lab` | `broker.lab`  | Hostname/address configured for MQTT (11-char cap).|
-| `Connected`       | `Connected`   | Connection state; also shows `Disconnected`.       |
+| `MQTT:Connected`  | `Connected`   | Connection state (`Connected` or `Disconnected`).  |
+| `broker.lab`      | `broker.lab`  | Broker host/IP shown without truncation.           |
 
 ### Page 2 – Firmware Build
 
