@@ -12,6 +12,7 @@
 #include "logger.hpp"
 #include "screen.hpp"
 #include "input_match.hpp"
+#include "version_info.hpp"
 
 #include "secrets.h"
 #include "config.h"
@@ -230,8 +231,6 @@ void setup() {
 
     // Baseline metadata for Screen D so the UI shows useful values even
     // before Wi-Fi and MQTT finish connecting.
-    screen.buildDate = __DATE__;
-    screen.buildTime = __TIME__;
     screen.wifiSsid = ssid;
     screen.mqttHost = SECRET_MQTT_SERVER;
     screen.mqttPort = 1883;
@@ -255,6 +254,9 @@ void setup() {
         unsigned long lcd_write_end = millis();
         LOGF("LCD write took in ms: %lu", (lcd_write_end - lcd_write_start));
     }
+
+    LOGF("[build] git %s (%s)", version_info::hash().c_str(), version_info::ref().c_str());
+    LOGF("[build] committed %s", version_info::commit_timestamp_iso().c_str());
 
     // https://community.platformio.org/t/esp32-ota-using-platformio/15057/4
     screen.bootStatus = "WiFi:";

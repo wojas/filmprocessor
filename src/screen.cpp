@@ -1,4 +1,5 @@
 #include "screen.hpp"
+#include "version_info.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -221,7 +222,7 @@ void Screen::renderScreenA() {
 void Screen::renderScreenB() {
     // Diagnostics screen cycles through sub-pages to expose more metrics
     // than fit on a single 16x2 LCD row.
-    const int page_index = page % 3;
+    const int page_index = page % 4;
     char row0[17];
     char row1[17];
 
@@ -281,7 +282,7 @@ void Screen::renderScreenC() {
 }
 
 void Screen::renderScreenD() {
-    const int page_index = page % 3;
+    const int page_index = page % 4;
     char row0[17];
     char row1[17];
 
@@ -316,31 +317,15 @@ void Screen::renderScreenD() {
         break;
     }
     case 2: {
-        // Page 2: Build metadata so operators know the flashed firmware.
-        String date = buildDate.length() > 0 ? buildDate : String(__DATE__);
-        if (date.length() > 16) {
-            date = date.substring(0, 16);
-        }
-        String time = buildTime.length() > 0 ? buildTime : String(__TIME__);
-        if (time.length() > 16) {
-            time = time.substring(0, 16);
-        }
-        String row0Text = "Bld:" + date;
-        String row1Text = "Time:" + time;
-        if (row0Text.length() > 16) {
-            row0Text = row0Text.substring(0, 16);
-        }
-        if (row1Text.length() > 16) {
-            row1Text = row1Text.substring(0, 16);
-        }
-        while (row0Text.length() < 16) {
-            row0Text += ' ';
-        }
-        while (row1Text.length() < 16) {
-            row1Text += ' ';
-        }
-        writeText(0, 0, row0Text);
-        writeText(1, 0, row1Text);
+        // Page 2: Git metadata identifies the running firmware.
+        writeText(0, 0, version_info::screen_git_line0());
+        writeText(1, 0, version_info::screen_git_line1());
+        break;
+    }
+    case 3: {
+        // Page 3: Commit timestamp replaces the old build date/time.
+        writeText(0, 0, version_info::commit_date_line());
+        writeText(1, 0, version_info::commit_time_line());
         break;
     }
     default:

@@ -59,9 +59,6 @@ public:
     String mqttHost;
     uint16_t mqttPort = 0;
     bool mqttConnected = false;
-    String buildDate;
-    String buildTime;
-
     // Screen Boot data
     String bootStatus;
     String bootInfo;

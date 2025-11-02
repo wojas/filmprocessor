@@ -87,7 +87,7 @@ FW360 BK-320
 
 ## Screen D – Connectivity & Build
 
-Screen `D` also paginates. Re-selecting `D` cycles through three pages of
+Screen `D` also paginates. Re-selecting `D` cycles through four pages of
 network status and firmware provenance.
 
 ### Page 0 – Wi-Fi Link
@@ -114,17 +114,29 @@ broker.lab
 | `MQTT:Connected`  | `Connected`   | Connection state (`Connected` or `Disconnected`).  |
 | `broker.lab`      | `broker.lab`  | Broker host/IP shown without truncation.           |
 
-### Page 2 – Firmware Build
+### Page 2 – Git Identity
 
 ```
-Bld:2024-03-18
+git: a1b2c3d
+release-v0.3
+```
+
+| Field          | Example        | Meaning                                                     |
+|----------------|----------------|-------------------------------------------------------------|
+| `git: a1b2c3d` | `a1b2c3d`      | Short commit hash of the firmware currently running.       |
+| `release-v0.3` | `release-v0.3` | Active tag name (preferred) or branch if no tag is present. |
+
+### Page 3 – Commit Timestamp
+
+```
+Date:2024-03-18
 Time:12:34:56
 ```
 
-| Field              | Example      | Meaning                                        |
-|--------------------|--------------|------------------------------------------------|
-| `Bld:2024-03-18`   | `2024-03-18` | Compile date straight from `__DATE__`.          |
-| `Time:12:34:56`    | `12:34:56`   | Compile time straight from `__TIME__`.          |
+| Field            | Example      | Meaning                                                     |
+|------------------|--------------|-------------------------------------------------------------|
+| `Date:2024-03-18`| `2024-03-18` | Commit date extracted from the git metadata (ISO format).   |
+| `Time:12:34:56`  | `12:34:56`   | Commit time (UTC offset trimmed to fit the display window). |
 
 ---
 
