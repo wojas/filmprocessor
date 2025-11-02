@@ -117,14 +117,14 @@ broker.lab
 ### Page 2 – Git Identity
 
 ```
-git: a1b2c3d
+git: a1b2c3d+
 release-v0.3
 ```
 
-| Field          | Example        | Meaning                                                     |
-|----------------|----------------|-------------------------------------------------------------|
-| `git: a1b2c3d` | `a1b2c3d`      | Short commit hash of the firmware currently running.       |
-| `release-v0.3` | `release-v0.3` | Active tag name (preferred) or branch if no tag is present. |
+| Field           | Example        | Meaning                                                                 |
+|-----------------|----------------|-------------------------------------------------------------------------|
+| `git: a1b2c3d+` | `a1b2c3d+`     | Short commit hash (`+` suffix indicates uncommitted workspace changes).|
+| `release-v0.3`  | `release-v0.3` | Active tag name (preferred) or branch if no tag is present.             |
 
 ### Page 3 – Commit Timestamp
 

@@ -7,19 +7,23 @@
 #endif
 
 #ifndef GIT_HASH
-#define GIT_HASH unknown
+#define GIT_HASH "unknown"
 #endif
 
 #ifndef GIT_REF
-#define GIT_REF unknown
+#define GIT_REF "unknown"
 #endif
 
 #ifndef GIT_COMMIT_TIME
-#define GIT_COMMIT_TIME unknown
+#define GIT_COMMIT_TIME "unknown"
 #endif
 
 #ifndef GIT_IS_TAG
 #define GIT_IS_TAG 0
+#endif
+
+#ifndef GIT_DIRTY
+#define GIT_DIRTY 0
 #endif
 
 namespace version_info {
@@ -27,12 +31,32 @@ namespace version_info {
 #define VERSION_INFO_STRINGIZE_INNER(x) #x
 #define VERSION_INFO_STRINGIZE(x) VERSION_INFO_STRINGIZE_INNER(x)
 
+inline String macro_string(const char* raw) {
+    String result = String(raw);
+    int len = result.length();
+    if (len >= 2 && result[0] == '"' && result[len - 1] == '"') {
+        result = result.substring(1, len - 1);
+    }
+    return result;
+}
+
+inline bool is_dirty() {
+    return GIT_DIRTY != 0;
+}
+
 inline String hash() {
-    return String(VERSION_INFO_STRINGIZE(GIT_HASH));
+    String value = macro_string(VERSION_INFO_STRINGIZE(GIT_HASH));
+    if (is_dirty()) {
+        int len = value.length();
+        if (len == 0 || value[len - 1] != '+') {
+            value += '+';
+        }
+    }
+    return value;
 }
 
 inline String ref() {
-    return String(VERSION_INFO_STRINGIZE(GIT_REF));
+    return macro_string(VERSION_INFO_STRINGIZE(GIT_REF));
 }
 
 inline bool is_tag() {
@@ -40,7 +64,7 @@ inline bool is_tag() {
 }
 
 inline String commit_timestamp_iso() {
-    return String(VERSION_INFO_STRINGIZE(GIT_COMMIT_TIME));
+    return macro_string(VERSION_INFO_STRINGIZE(GIT_COMMIT_TIME));
 }
 
 inline String screen_git_line0() {
@@ -100,6 +124,9 @@ inline String commit_time_line() {
 }
 
 } // namespace version_info
+
+#undef VERSION_INFO_STRINGIZE
+#undef VERSION_INFO_STRINGIZE_INNER
 
 #undef VERSION_INFO_STRINGIZE
 #undef VERSION_INFO_STRINGIZE_INNER

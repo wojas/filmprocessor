@@ -17,15 +17,13 @@ def _git_output(args):
         return None
 
 
-def _escape(value: str) -> str:
-    return value.replace('"', '\\"')
-
-
 def _ensure_define(name, value, quoted=True):
-    if quoted:
-        env.Append(CPPDEFINES=[f'{name}="{_escape(value)}"'])
-    else:
+    value = "" if value is None else str(value)
+    if not quoted:
         env.Append(CPPDEFINES=[f"{name}={value}"])
+    else:
+        escaped = value.replace('"', '\\"')
+        env.Append(CPPDEFINES=[f'{name}="{escaped}"'])
 
 
 hash_value = _git_output(["git", "rev-parse", "--short", "HEAD"]) or "unknown"
@@ -36,8 +34,11 @@ else:
     ref_value = _git_output(["git", "rev-parse", "--abbrev-ref", "HEAD"]) or "unknown"
 
 commit_time = _git_output(["git", "show", "-s", "--format=%cI", "HEAD"]) or "unknown"
+dirty_output = _git_output(["git", "status", "--porcelain"])
+dirty_flag = bool(dirty_output)
 
 _ensure_define("GIT_HASH", hash_value)
 _ensure_define("GIT_REF", ref_value)
 _ensure_define("GIT_COMMIT_TIME", commit_time)
 _ensure_define("GIT_IS_TAG", "1" if bool(tag_value) else "0", quoted=False)
+_ensure_define("GIT_DIRTY", "1" if dirty_flag else "0", quoted=False)

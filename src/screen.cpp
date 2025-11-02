@@ -222,7 +222,7 @@ void Screen::renderScreenA() {
 void Screen::renderScreenB() {
     // Diagnostics screen cycles through sub-pages to expose more metrics
     // than fit on a single 16x2 LCD row.
-    const int page_index = page % 4;
+    const int page_index = page % 3;
     char row0[17];
     char row1[17];
 
