@@ -1,6 +1,9 @@
 #include "screen.hpp"
+#include "version_info.hpp"
 
+#include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 
 static uint8_t progress_char_base[16] = {
         0, 0, 0, 0,
@@ -8,6 +11,70 @@ static uint8_t progress_char_base[16] = {
         255, 255, 255, 255,
         255, 255, 255, 255
     };
+
+namespace {
+
+// Convert the motor state id into a compact single-character glyph so the
+// diagnostics view can show it alongside other numbers.
+char state_symbol(int state) {
+    switch (state) {
+    case 0:
+        return 'I'; // Idle
+    case 1:
+        return '^'; // RampUp
+    case 2:
+        return '>'; // Running
+    case 3:
+        return 'v'; // RampDown
+    case 4:
+        return '='; // Coast
+    default:
+        return '?';
+    }
+}
+
+// Small helper so we can quickly mirror the direction on Screen B.
+char direction_symbol(int direction) {
+    return direction >= 0 ? '>' : '<';
+}
+
+// Clamp a value into a printable range without introducing std::clamp
+// dependencies in the header.
+int clamp_to_range(int value, int min, int max) {
+    return std::min(std::max(value, min), max);
+}
+
+// Render the signed pulse counter with either raw counts or a scaled
+// k-suffix once the value grows beyond 5 digits (fits 7 chars total).
+void format_count(char* dest, size_t len, int32_t count) {
+    const char sign = count >= 0 ? '+' : '-';
+    uint32_t magnitude = static_cast<uint32_t>(std::abs(count));
+    if (magnitude >= 10000) {
+        uint32_t whole = magnitude / 1000;
+        uint32_t tenths = (magnitude % 1000) / 100;
+        std::snprintf(dest, len, "%c%2lu.%1luk",
+            sign,
+            static_cast<unsigned long>(whole),
+            static_cast<unsigned long>(tenths));
+    } else {
+        std::snprintf(dest, len, "%c%4lu",
+            sign,
+            static_cast<unsigned long>(magnitude));
+    }
+}
+
+// Turn milliseconds into a fixed-width seconds.tenths value (xx.xs) so
+// the row stays aligned while still showing some fractional detail.
+void format_duration(char* dest, size_t len, uint32_t ms) {
+    uint32_t tenths = (ms + 50) / 100; // round to nearest 0.1 second
+    uint32_t seconds = tenths / 10;
+    uint32_t tenth = tenths % 10;
+    std::snprintf(dest, len, "%2lu.%1lus",
+        static_cast<unsigned long>(seconds),
+        static_cast<unsigned long>(tenth));
+}
+
+} // namespace
 
 Screen::Screen()
 #ifdef ARDUINO
@@ -153,7 +220,61 @@ void Screen::renderScreenA() {
 }
 
 void Screen::renderScreenB() {
-    // Reserved for future implementation
+    // Diagnostics screen cycles through sub-pages to expose more metrics
+    // than fit on a single 16x2 LCD row.
+    const int page_index = page % 3;
+    char row0[17];
+    char row1[17];
+
+    switch (page_index) {
+    case 0: {
+        // Page 0: live control loop snapshot (RPM vs target, duty, PID state).
+        std::snprintf(row0, sizeof(row0), "R%3d/%3d D%3d S%c",
+            clamp_to_range(rpm, -999, 999),
+            clamp_to_range(targetRpm, -999, 999),
+            clamp_to_range(duty, 0, 999),
+            state_symbol(motorState));
+        std::snprintf(row1, sizeof(row1), "I%+03d R%03d P%+03d",
+            clamp_to_range(pidIntegral, -99, 99),
+            clamp_to_range(targetRotation, 0, 999),
+            clamp_to_range(targetProgress, -99, 999));
+        writeText(0, 0, String(row0));
+        writeText(1, 0, String(row1));
+        break;
+    }
+    case 1: {
+        // Page 1: encoder totals, direction and control-loop error history.
+        char count_buffer[8];
+        format_count(count_buffer, sizeof(count_buffer), totalCount);
+        std::snprintf(row0, sizeof(row0), "CNT%s DIR%c",
+            count_buffer,
+            direction_symbol(totalDirection));
+        std::snprintf(row1, sizeof(row1), "AGE%04u ERR%+03d",
+            static_cast<unsigned>(std::min<uint32_t>(stateAgeMs, static_cast<uint32_t>(9999))),
+            clamp_to_range(pidError, -99, 99));
+        writeText(0, 0, String(row0));
+        writeText(1, 0, String(row1));
+        break;
+    }
+    case 2: {
+        // Page 2: recent cycle timing plus forward/backward stroke advances.
+        char last_buffer[8];
+        char prev_buffer[8];
+        format_duration(last_buffer, sizeof(last_buffer), lastCycleMs);
+        format_duration(prev_buffer, sizeof(prev_buffer), prevCycleMs);
+        std::snprintf(row0, sizeof(row0), "C%s P%s",
+            last_buffer,
+            prev_buffer);
+        std::snprintf(row1, sizeof(row1), "FW%03d BK%+04d",
+            clamp_to_range(lastForwardDegrees, 0, 999),
+            clamp_to_range(-lastBackwardDegrees, -999, 0));
+        writeText(0, 0, String(row0));
+        writeText(1, 0, String(row1));
+        break;
+    }
+    default:
+        break;
+    }
 }
 
 void Screen::renderScreenC() {
@@ -161,7 +282,55 @@ void Screen::renderScreenC() {
 }
 
 void Screen::renderScreenD() {
-    // Reserved for future implementation
+    const int page_index = page % 4;
+    char row0[17];
+    char row1[17];
+
+    switch (page_index) {
+    case 0: {
+        // Page 0: WiFi SSID and IP to confirm network attachment.
+        String ssid = wifiSsid.length() > 0 ? wifiSsid : String("n/a");
+        if (ssid.length() > 11) {
+            ssid = ssid.substring(0, 11);
+        }
+        String ip = wifiIp.length() > 0 ? wifiIp : String("0.0.0.0");
+        if (ip.length() > 16) {
+            ip = ip.substring(0, 16);
+        }
+        std::snprintf(row0, sizeof(row0), "WiFi:%-11s", ssid.c_str());
+        std::snprintf(row1, sizeof(row1), "%-16s", ip.c_str());
+        writeText(0, 0, String(row0));
+        writeText(1, 0, String(row1));
+        break;
+    }
+    case 1: {
+        // Page 1: MQTT broker identity plus live connection state.
+        String host = mqttHost.length() > 0 ? mqttHost : String("n/a");
+        if (host.length() > 16) {
+            host = host.substring(0, 16);
+        }
+        const char* status = mqttConnected ? "Connected" : "Disconnected";
+        std::snprintf(row0, sizeof(row0), "MQTT:%-11s", status);
+        std::snprintf(row1, sizeof(row1), "%-16s", host.c_str());
+        writeText(0, 0, String(row0));
+        writeText(1, 0, String(row1));
+        break;
+    }
+    case 2: {
+        // Page 2: Git metadata identifies the running firmware.
+        writeText(0, 0, version_info::screen_git_line0());
+        writeText(1, 0, version_info::screen_git_line1());
+        break;
+    }
+    case 3: {
+        // Page 3: Commit timestamp replaces the old build date/time.
+        writeText(0, 0, version_info::commit_date_line());
+        writeText(1, 0, version_info::commit_time_line());
+        break;
+    }
+    default:
+        break;
+    }
 }
 
 void Screen::renderScreenBoot() {

@@ -12,6 +12,7 @@
 #include "logger.hpp"
 #include "screen.hpp"
 #include "input_match.hpp"
+#include "version_info.hpp"
 
 #include "secrets.h"
 #include "config.h"
@@ -29,7 +30,6 @@ uint32_t last_ota_time = 0;
 Screen screen;
 
 unsigned long lastMsg = 0;
-
 
 void mqtt_callback(const char* topic, const byte* payload, unsigned int length) {
     LOGF("[MQTT] Message topic=%s : %.*s", topic, length, payload);
@@ -119,12 +119,21 @@ void reset_timer();
 
 // init_keypad_routes defines handlers for different keypad input patterns
 static void init_keypad_routes() {
-    keypad_matcher.match("Annn#", [](const InputMatch::Result& res) {
+    keypad_matcher.match("A", [](const InputMatch::Result& res) {
+        screen.setScreen(Screen::ID::A);
+    });
+    keypad_matcher.match("B", [](const InputMatch::Result& res) {
+        screen.setScreen(Screen::ID::B);
+    });
+    keypad_matcher.match("D", [](const InputMatch::Result& res) {
+        screen.setScreen(Screen::ID::D);
+    });
+    keypad_matcher.match("*Annn#", [](const InputMatch::Result& res) {
         if (res.has_number && res.number < 100) {
             motor_target_rpm(res.number);
         }
     });
-    keypad_matcher.match("Bnnn#", [](const InputMatch::Result& res) {
+    keypad_matcher.match("*Bnnn#", [](const InputMatch::Result& res) {
         if (!res.has_number) {
             return;
         }
@@ -134,12 +143,12 @@ static void init_keypad_routes() {
         }
         motor_target_progress(value);
     });
-    keypad_matcher.match("Cnnn#", [](const InputMatch::Result& res) {
+    keypad_matcher.match("*Cnnn#", [](const InputMatch::Result& res) {
         if (res.has_number) {
             motor_target_rotation_per_cycle(res.number);
         }
     });
-    keypad_matcher.match("Dnnn#", [](const InputMatch::Result& res) {
+    keypad_matcher.match("*Dnnn#", [](const InputMatch::Result& res) {
         if (res.has_number && res.number <= 255) {
             motor_target_duty(res.number);
         }
@@ -220,6 +229,12 @@ void setup() {
 
     init_keypad_routes();
 
+    // Baseline metadata for Screen D so the UI shows useful values even
+    // before Wi-Fi and MQTT finish connecting.
+    screen.wifiSsid = ssid;
+    screen.mqttHost = SECRET_MQTT_SERVER;
+    screen.mqttPort = 1883;
+
     // Setup LCD for early error output
     LOGF("Setting up LCD");
     unsigned long lcd_begin_start = millis();
@@ -239,6 +254,9 @@ void setup() {
         unsigned long lcd_write_end = millis();
         LOGF("LCD write took in ms: %lu", (lcd_write_end - lcd_write_start));
     }
+
+    LOGF("[build] git %s (%s)", version_info::hash().c_str(), version_info::ref().c_str());
+    LOGF("[build] committed %s", version_info::commit_timestamp_iso().c_str());
 
     // https://community.platformio.org/t/esp32-ota-using-platformio/15057/4
     screen.bootStatus = "WiFi:";
@@ -260,6 +278,7 @@ void setup() {
         screen.bootStatus = buffer;
         screen.bootInfo = "";
         screen.render();
+        screen.wifiIp = WiFi.localIP().toString();
 
         error_blink(15, 200, 100); // takes 4.5s
         //ESP.restart();
@@ -267,6 +286,7 @@ void setup() {
         // Display IP
         auto ip = WiFi.localIP();
         LOGF("[WiFi] connected, IP address: %s", ip.toString().c_str());
+        screen.wifiIp = ip.toString();
 
         // Display IP for 500ms
         screen.bootStatus = "WiFi ready";
@@ -287,6 +307,8 @@ void setup() {
         clientId.c_str(),
         SECRET_MQTT_USER,
         SECRET_MQTT_PASS);
+    screen.mqttHost = MQTT::broker();
+    screen.mqttPort = MQTT::port();
     MQTT::startTask();
 
     Logger::enableMQTT("letsroll/log");
@@ -410,6 +432,24 @@ void loop() {
         screen.duty = motor_duty();
         screen.paused = motor_is_paused();
         screen.progressDegrees = static_cast<int>(motor_position_degrees());
+        // Keep the connectivity view current alongside the motor telemetry.
+        screen.wifiIp = WiFi.localIP().toString();
+        screen.mqttHost = MQTT::broker();
+        screen.mqttPort = MQTT::port();
+        screen.mqttConnected = MQTT::connected();
+        // Feed Screen B's diagnostics pages with live motor metrics.
+        screen.targetRotation = motor_get_target_rotation_per_cycle();
+        screen.targetProgress = motor_get_target_progress();
+        screen.pidIntegral = motor_pid_integral();
+        screen.pidError = motor_pid_error();
+        screen.totalCount = motor_total_count_signed();
+        screen.totalDirection = motor_direction_sign();
+        screen.motorState = motor_state_id();
+        screen.stateAgeMs = motor_state_age_ms();
+        screen.lastCycleMs = motor_last_cycle_duration_ms();
+        screen.prevCycleMs = motor_prev_cycle_duration_ms();
+        screen.lastForwardDegrees = motor_last_forward_degrees();
+        screen.lastBackwardDegrees = motor_last_backward_degrees();
         screen.elapsedSeconds = (now - start_millis) / 1000;
         screen.previousCycleSeconds = prev_time_sec;
         screen.render();

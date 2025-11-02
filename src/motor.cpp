@@ -82,6 +82,29 @@ volatile bool target_pause = true;
 volatile int last_rpm = 0;
 volatile uint32_t last_rpm_millis = 0;
 volatile int last_duty = 0;
+volatile int pid_integral = 0;
+volatile int pid_error = 0;
+volatile uint32_t stroke_start_millis = 0;
+volatile int stroke_start_rotation = 0;
+volatile int stroke_direction = 1;
+volatile uint32_t cycle_start_millis = 0;
+volatile uint32_t last_cycle_duration_ms = 0;
+volatile uint32_t prev_cycle_duration_ms = 0;
+volatile int last_forward_degrees = 0;
+volatile int last_backward_degrees = 0;
+
+// Remember the start timestamp and rotation of the current stroke so we
+// can measure stroke distance and cycle timing without blocking the loop.
+void _start_new_stroke() {
+    const uint32_t now = millis();
+    stroke_start_millis = now;
+    stroke_start_rotation = motor_calc_rotation_degrees(total_count);
+    stroke_direction = direction >= 0 ? 1 : -1;
+    if (stroke_direction > 0) {
+        // Forward stroke marks the beginning of a full cycle.
+        cycle_start_millis = now;
+    }
+}
 
 static int rotation_delta_for_direction(int dir) {
     // Split progress across the two strokes in a cycle so alternating directions remain
@@ -175,6 +198,62 @@ bool motor_toggle_paused() {
     return target_pause;
 }
 
+int motor_get_target_rotation_per_cycle() {
+    return target_rotation_per_cycle;
+}
+
+int motor_get_target_progress() {
+    return target_progress;
+}
+
+int motor_pid_integral() {
+    return pid_integral;
+}
+
+int motor_pid_error() {
+    return pid_error;
+}
+
+int32_t motor_total_count_signed() {
+    return total_count;
+}
+
+uint32_t motor_total_count_forward() {
+    return total_count_fw;
+}
+
+uint32_t motor_total_count_backward() {
+    return total_count_bw;
+}
+
+int motor_direction_sign() {
+    return direction >= 0 ? 1 : -1;
+}
+
+int motor_state_id() {
+    return static_cast<int>(state);
+}
+
+uint32_t motor_state_age_ms() {
+    return millis() - state_change_millis;
+}
+
+uint32_t motor_last_cycle_duration_ms() {
+    return last_cycle_duration_ms;
+}
+
+uint32_t motor_prev_cycle_duration_ms() {
+    return prev_cycle_duration_ms;
+}
+
+int motor_last_forward_degrees() {
+    return last_forward_degrees;
+}
+
+int motor_last_backward_degrees() {
+    return last_backward_degrees;
+}
+
 // Absolute motor axis orientation in degrees (0-359).
 // Relative to whatever starting position the motor had on startup.
 unsigned int motor_position_degrees() {
@@ -243,7 +322,7 @@ void _flush_stats(unsigned long msec, bool flushOnly = false) {
     static size_t offset = 0;
     static size_t header_size = 0;
 
-    if ( (flushOnly && offset <= header_size) || (sizeof(buf) - offset < 120) ) {
+    if ( (flushOnly && offset <= header_size) || (sizeof(buf) - offset < 200) ) {
         // Flush to MQTT (this copies the data)
         MQTT::publishAsync("letsroll/motor/csv", reinterpret_cast<const uint8_t*>(buf), offset);
         // Keep the header, but overwrite data
@@ -256,12 +335,18 @@ void _flush_stats(unsigned long msec, bool flushOnly = false) {
     if (offset == 0) {
         // Write CSV header. This will only happen once, as we reuse it.
         header_size = snprintf(buf + offset, sizeof(buf) - offset,
-            "#ts,t_rpm,t_duty,t_rpc,t_prog,t_rot,t_dir,tot,tot_abs,tot_fw,tot_bw,paused,state,dir,rot,duty,rpm\n");
+            "#ts,t_rpm,t_duty,t_rpc,t_prog,t_rot,t_dir,tot,tot_abs,tot_fw,tot_bw,"
+            "paused,state,dir,rot,duty,rpm,"
+            "i_accum,err,state_ms,cycle,last_cycle\n");
         offset += header_size;
     }
 
+    const uint32_t stamp = static_cast<uint32_t>(msec);
+    const uint32_t state_age = stamp - state_change_millis;
+    const uint32_t cycle_elapsed = cycle_start_millis ? (stamp - cycle_start_millis) : 0;
+
     offset += snprintf(buf + offset, sizeof(buf) - offset,
-        "%lu,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s,%d,%d,%d,%d\n",
+        "%lu,%d,%d,%d,%d,%d,%d,%ld,%lu,%lu,%lu,%d,%s,%d,%d,%d,%d,%d,%d,%lu,%lu,%lu\n",
         msec,
         target_rpm,
         target_duty,
@@ -269,16 +354,21 @@ void _flush_stats(unsigned long msec, bool flushOnly = false) {
         target_progress,
         target_rotation,
         target_direction,
-        total_count,
-        total_count_abs,
-        total_count_fw,
-        total_count_bw,
-        target_pause,
+        static_cast<long>(total_count),
+        static_cast<unsigned long>(total_count_abs),
+        static_cast<unsigned long>(total_count_fw),
+        static_cast<unsigned long>(total_count_bw),
+        target_pause ? 1 : 0,
         state_name(state),
         direction,
         motor_calc_rotation_degrees(total_count),
         last_duty,
-        last_rpm);
+        last_rpm,
+        pid_integral,
+        pid_error,
+        static_cast<unsigned long>(state_age),
+        static_cast<unsigned long>(cycle_elapsed),
+        static_cast<unsigned long>(last_cycle_duration_ms));
 }
 
 void _transition(const State newState) {
@@ -457,6 +547,24 @@ void motor_monitor_task(void* params) {
                     int32_t total_rotation = motor_calc_rotation_degrees(total_count);
                     // The direction matters here. Here it ensures we compare in the right direction.
                     if ((direction * total_rotation) >= (direction * target_rotation)) {
+                        const uint32_t now_ms = millis();
+                        int stroke_delta = (total_rotation - stroke_start_rotation) * stroke_direction;
+                        if (stroke_delta < 0) {
+                            stroke_delta = -stroke_delta;
+                        }
+                        if (stroke_direction > 0) {
+                            last_forward_degrees = stroke_delta;
+                        } else {
+                            last_backward_degrees = stroke_delta;
+                            prev_cycle_duration_ms = last_cycle_duration_ms;
+                            if (cycle_start_millis != 0) {
+                                last_cycle_duration_ms = now_ms - cycle_start_millis;
+                            } else {
+                                last_cycle_duration_ms = now_ms - stroke_start_millis;
+                            }
+                            cycle_start_millis = now_ms;
+                        }
+
                         const int next_direction = -direction;
                         const int delta = rotation_delta_for_direction(next_direction);
                         target_direction = next_direction;
@@ -491,8 +599,9 @@ void motor_monitor_task(void* params) {
                 }
 
                 // Adjust motor duty to match RPM
+                pid_error = target_rpm - rpm;
                 if (rpm != target_rpm) {
-                    int diff = target_rpm - rpm; // positive if not fast enough
+                    int diff = pid_error; // positive if not fast enough
                     int diff_filtered = target_rpm - rpm_filtered;
 
                     // Small smoother adjustments when we are near our target
@@ -512,9 +621,8 @@ void motor_monitor_task(void* params) {
                     }
 
                     //int adjust = diff; // only way now to get a precision of 1
-                    static int i_accum = 0;
-                    i_accum = std::clamp(i_accum + diff, -MOTOR_I_MAX, MOTOR_I_MAX);
-                    int adjust = MOTOR_KP * diff + MOTOR_KI * i_accum;
+                    pid_integral = std::clamp(pid_integral + diff, -MOTOR_I_MAX, MOTOR_I_MAX);
+                    int adjust = MOTOR_KP * diff + MOTOR_KI * pid_integral;
 
                     // Limit adjustment per tick (20ms)
                     if (adjust > MOTOR_ADJUST_LIMIT) {
@@ -586,6 +694,7 @@ void motor_monitor_task(void* params) {
             if (last_rpm < 5 || state_age >= MOTOR_COAST_MSEC) {
                 direction = target_direction;
                 motor_flush_direction();
+                _start_new_stroke();
 
                 if (!want_running) {
                     _transition(State::Idle);
@@ -641,6 +750,7 @@ void motor_init() {
     // Direction pin
     pinMode(MOTOR_DIR_GPIO,OUTPUT);
     motor_flush_direction();
+    _start_new_stroke();
 
     // Start paused
     target_pause = true;
