@@ -306,8 +306,8 @@ void Screen::renderScreenD() {
     case 1: {
         // Page 1: MQTT broker identity plus live connection state.
         String host = mqttHost.length() > 0 ? mqttHost : String("n/a");
-        if (host.length() > 11) {
-            host = host.substring(0, 11);
+        if (host.length() > 16) {
+            host = host.substring(0, 16);
         }
         const char* status = mqttConnected ? "Connected" : "Disconnected";
         std::snprintf(row0, sizeof(row0), "MQTT:%-11s", status);

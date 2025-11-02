@@ -11,7 +11,9 @@ monitor_dtr = 0
 monitor_rts = 0
 ; Delay monitoring in this case to avoid timeouts.
 ; Logs are buffered before the network is available.
-extra_scripts = post:helpers/delay_monitor.py
+extra_scripts =
+    ${env.extra_scripts}
+    post:scripts/delay_monitor.py
 
 ; This is the only relevant one for OTA, most others are for
 ; special programmer interfaces.

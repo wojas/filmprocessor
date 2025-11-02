@@ -93,7 +93,7 @@ inline String screen_git_line1() {
 inline String commit_date_line() {
     String iso = commit_timestamp_iso();
     String datePart = iso.length() >= 10 ? iso.substring(0, 10) : iso;
-    String line = "Date:" + datePart;
+    String line = "Date: " + datePart;
     if (line.length() > 16) {
         line = line.substring(0, 16);
     }
@@ -113,7 +113,7 @@ inline String commit_time_line() {
     } else {
         timePart = iso;
     }
-    String line = "Time:" + timePart;
+    String line = "Time: " + timePart;
     if (line.length() > 16) {
         line = line.substring(0, 16);
     }
