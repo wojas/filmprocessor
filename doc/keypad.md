@@ -58,6 +58,12 @@ to halt or reset once finished.
 - **Behaviour**: Switches the LCD to Screen `B`. Repeated taps cycle
   through the diagnostic sub-pages.
 
+### `D` – Show Screen D
+- **Input**: Single `D`.
+- **Behaviour**: Switches to Screen `D`. Each tap advances through the
+  connectivity/build pages so you can confirm Wi-Fi, MQTT, and firmware
+  metadata without leaving the keypad.
+
 ## Advanced Settings
 
 ### `*Annn#` – Set Target RPM

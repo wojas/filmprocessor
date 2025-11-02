@@ -53,6 +53,15 @@ public:
     int lastForwardDegrees = 0;    // forward stroke degrees in last cycle
     int lastBackwardDegrees = 0;   // reverse stroke degrees (absolute value)
 
+    // Screen D data (system information)
+    String wifiSsid;
+    String wifiIp;
+    String mqttHost;
+    uint16_t mqttPort = 0;
+    bool mqttConnected = false;
+    String buildDate;
+    String buildTime;
+
     // Screen Boot data
     String bootStatus;
     String bootInfo;

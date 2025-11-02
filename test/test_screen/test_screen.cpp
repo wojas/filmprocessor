@@ -47,6 +47,46 @@ static void test_screen_a_formats_basic_state() {
     TEST_ASSERT_EQUAL_STRING_LEN(" 2:05  1:30   42", row1.c_str(), 16);
 }
 
+static void test_screen_d_pages_cycle() {
+    Screen screen;
+    TEST_ASSERT_TRUE(screen.begin());
+
+    screen.wifiSsid = "StudioAP";
+    screen.wifiIp = "192.168.1.42";
+    screen.mqttHost = "broker.lab";
+    screen.mqttPort = 1883;
+    screen.mqttConnected = true;
+    screen.buildDate = "2024-03-18";
+    screen.buildTime = "12:34:56";
+
+    screen.setScreen(Screen::ID::D);
+    screen.render();
+    std::string row0 = screen.bufferRow(0).c_str();
+    std::string row1 = screen.bufferRow(1).c_str();
+    row0.resize(16, ' ');
+    row1.resize(16, ' ');
+    TEST_ASSERT_EQUAL_STRING_LEN("WiFi:StudioAP   ", row0.c_str(), 16);
+    TEST_ASSERT_EQUAL_STRING_LEN("192.168.1.42    ", row1.c_str(), 16);
+
+    screen.setScreen(Screen::ID::D); // advance to page 1
+    screen.render();
+    row0 = screen.bufferRow(0).c_str();
+    row1 = screen.bufferRow(1).c_str();
+    row0.resize(16, ' ');
+    row1.resize(16, ' ');
+    TEST_ASSERT_EQUAL_STRING_LEN("MQTT:broker.lab ", row0.c_str(), 16);
+    TEST_ASSERT_EQUAL_STRING_LEN("Connected       ", row1.c_str(), 16);
+
+    screen.setScreen(Screen::ID::D); // advance to page 2
+    screen.render();
+    row0 = screen.bufferRow(0).c_str();
+    row1 = screen.bufferRow(1).c_str();
+    row0.resize(16, ' ');
+    row1.resize(16, ' ');
+    TEST_ASSERT_EQUAL_STRING_LEN("Bld:2024-03-18  ", row0.c_str(), 16);
+    TEST_ASSERT_EQUAL_STRING_LEN("Time:12:34:56   ", row1.c_str(), 16);
+}
+
 void setUp() {}
 
 void tearDown() {}
@@ -55,6 +95,7 @@ static int run() {
     UNITY_BEGIN();
     RUN_TEST(test_boot_screen_renders_without_hardware);
     RUN_TEST(test_screen_a_formats_basic_state);
+    RUN_TEST(test_screen_d_pages_cycle);
     return UNITY_END();
 }
 

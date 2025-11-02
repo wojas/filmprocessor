@@ -2,9 +2,10 @@
 
 The firmware renders a 16×2 character LCD. Four logical screens can be
 selected (`A`, `B`, `C`, `D`). Screen `A` is the operator overview, while
-Screen `B` provides paged diagnostics. Screens `C` and `D` are currently
-placeholders. This document walks through all screens and fields so
-operators know how to interpret the data.
+Screen `B` provides paged diagnostics. Screen `D` summarises connectivity
+and build information across multiple pages. Screen `C` remains reserved.
+This document walks through all screens and fields so operators know how
+to interpret the data.
 
 ---
 
@@ -84,6 +85,49 @@ FW360 BK-320
 
 ---
 
+## Screen D – Connectivity & Build
+
+Screen `D` also paginates. Re-selecting `D` cycles through three pages of
+network status and firmware provenance.
+
+### Page 0 – Wi-Fi Link
+
+```
+WiFi:StudioAP
+192.168.1.42
+```
+
+| Field          | Example        | Meaning                               |
+|----------------|----------------|---------------------------------------|
+| `WiFi:StudioAP`| `StudioAP`     | Connected SSID (truncated to 11 chr). |
+| `192.168…`     | `192.168.1.42` | Current STA IP shown without a prefix.|
+
+### Page 1 – MQTT Broker
+
+```
+MQTT:broker.lab
+Connected
+```
+
+| Field             | Example       | Meaning                                            |
+|-------------------|---------------|----------------------------------------------------|
+| `MQTT:broker.lab` | `broker.lab`  | Hostname/address configured for MQTT (11-char cap).|
+| `Connected`       | `Connected`   | Connection state; also shows `Disconnected`.       |
+
+### Page 2 – Firmware Build
+
+```
+Bld:2024-03-18
+Time:12:34:56
+```
+
+| Field              | Example      | Meaning                                        |
+|--------------------|--------------|------------------------------------------------|
+| `Bld:2024-03-18`   | `2024-03-18` | Compile date straight from `__DATE__`.          |
+| `Time:12:34:56`    | `12:34:56`   | Compile time straight from `__TIME__`.          |
+
+---
+
 ## Screen Boot
 
 Used during startup or when displaying status messages triggered by OTA.
@@ -128,7 +172,7 @@ an individual character shows 1/8 increments.
 
 ---
 
-## Screen C & D
+## Screen C
 
 Currently reserved for future use. The firmware clears both rows.
 

@@ -281,7 +281,71 @@ void Screen::renderScreenC() {
 }
 
 void Screen::renderScreenD() {
-    // Reserved for future implementation
+    const int page_index = page % 3;
+    char row0[17];
+    char row1[17];
+
+    switch (page_index) {
+    case 0: {
+        // Page 0: WiFi SSID and IP to confirm network attachment.
+        String ssid = wifiSsid.length() > 0 ? wifiSsid : String("n/a");
+        if (ssid.length() > 11) {
+            ssid = ssid.substring(0, 11);
+        }
+        String ip = wifiIp.length() > 0 ? wifiIp : String("0.0.0.0");
+        if (ip.length() > 16) {
+            ip = ip.substring(0, 16);
+        }
+        std::snprintf(row0, sizeof(row0), "WiFi:%-11s", ssid.c_str());
+        std::snprintf(row1, sizeof(row1), "%-16s", ip.c_str());
+        writeText(0, 0, String(row0));
+        writeText(1, 0, String(row1));
+        break;
+    }
+    case 1: {
+        // Page 1: MQTT broker identity plus live connection state.
+        String host = mqttHost.length() > 0 ? mqttHost : String("n/a");
+        if (host.length() > 11) {
+            host = host.substring(0, 11);
+        }
+        const char* status = mqttConnected ? "Connected" : "Disconnected";
+        std::snprintf(row0, sizeof(row0), "MQTT:%-11s", host.c_str());
+        std::snprintf(row1, sizeof(row1), "%-16s", status);
+        writeText(0, 0, String(row0));
+        writeText(1, 0, String(row1));
+        break;
+    }
+    case 2: {
+        // Page 2: Build metadata so operators know the flashed firmware.
+        String date = buildDate.length() > 0 ? buildDate : String(__DATE__);
+        if (date.length() > 16) {
+            date = date.substring(0, 16);
+        }
+        String time = buildTime.length() > 0 ? buildTime : String(__TIME__);
+        if (time.length() > 16) {
+            time = time.substring(0, 16);
+        }
+        String row0Text = "Bld:" + date;
+        String row1Text = "Time:" + time;
+        if (row0Text.length() > 16) {
+            row0Text = row0Text.substring(0, 16);
+        }
+        if (row1Text.length() > 16) {
+            row1Text = row1Text.substring(0, 16);
+        }
+        while (row0Text.length() < 16) {
+            row0Text += ' ';
+        }
+        while (row1Text.length() < 16) {
+            row1Text += ' ';
+        }
+        writeText(0, 0, row0Text);
+        writeText(1, 0, row1Text);
+        break;
+    }
+    default:
+        break;
+    }
 }
 
 void Screen::renderScreenBoot() {

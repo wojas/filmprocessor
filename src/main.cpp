@@ -30,7 +30,6 @@ Screen screen;
 
 unsigned long lastMsg = 0;
 
-
 void mqtt_callback(const char* topic, const byte* payload, unsigned int length) {
     LOGF("[MQTT] Message topic=%s : %.*s", topic, length, payload);
 
@@ -124,6 +123,9 @@ static void init_keypad_routes() {
     });
     keypad_matcher.match("B", [](const InputMatch::Result& res) {
         screen.setScreen(Screen::ID::B);
+    });
+    keypad_matcher.match("D", [](const InputMatch::Result& res) {
+        screen.setScreen(Screen::ID::D);
     });
     keypad_matcher.match("*Annn#", [](const InputMatch::Result& res) {
         if (res.has_number && res.number < 100) {
@@ -226,6 +228,14 @@ void setup() {
 
     init_keypad_routes();
 
+    // Baseline metadata for Screen D so the UI shows useful values even
+    // before Wi-Fi and MQTT finish connecting.
+    screen.buildDate = __DATE__;
+    screen.buildTime = __TIME__;
+    screen.wifiSsid = ssid;
+    screen.mqttHost = SECRET_MQTT_SERVER;
+    screen.mqttPort = 1883;
+
     // Setup LCD for early error output
     LOGF("Setting up LCD");
     unsigned long lcd_begin_start = millis();
@@ -266,6 +276,7 @@ void setup() {
         screen.bootStatus = buffer;
         screen.bootInfo = "";
         screen.render();
+        screen.wifiIp = WiFi.localIP().toString();
 
         error_blink(15, 200, 100); // takes 4.5s
         //ESP.restart();
@@ -273,6 +284,7 @@ void setup() {
         // Display IP
         auto ip = WiFi.localIP();
         LOGF("[WiFi] connected, IP address: %s", ip.toString().c_str());
+        screen.wifiIp = ip.toString();
 
         // Display IP for 500ms
         screen.bootStatus = "WiFi ready";
@@ -293,6 +305,8 @@ void setup() {
         clientId.c_str(),
         SECRET_MQTT_USER,
         SECRET_MQTT_PASS);
+    screen.mqttHost = MQTT::broker();
+    screen.mqttPort = MQTT::port();
     MQTT::startTask();
 
     Logger::enableMQTT("letsroll/log");
@@ -416,6 +430,11 @@ void loop() {
         screen.duty = motor_duty();
         screen.paused = motor_is_paused();
         screen.progressDegrees = static_cast<int>(motor_position_degrees());
+        // Keep the connectivity view current alongside the motor telemetry.
+        screen.wifiIp = WiFi.localIP().toString();
+        screen.mqttHost = MQTT::broker();
+        screen.mqttPort = MQTT::port();
+        screen.mqttConnected = MQTT::connected();
         // Feed Screen B's diagnostics pages with live motor metrics.
         screen.targetRotation = motor_get_target_rotation_per_cycle();
         screen.targetProgress = motor_get_target_progress();
